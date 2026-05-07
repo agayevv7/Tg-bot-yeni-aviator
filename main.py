@@ -6,7 +6,7 @@ import time
 import os
 
 # --- EXTREME CONFIG ---
-TARGET_URL = "https://streamwin.win"
+TARGET_URL = "https://lalafo.az/"
 WORKERS = 180           # Railway Paid üçün maksimuma yaxın
 BATCH_SIZE = 80         # Hər dalğada göndərilən asinxron paket sayı
 CONNECTION_LIMIT = 5000 # Eyni anda açıq qalan TCP bağlantıları
