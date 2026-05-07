@@ -5,7 +5,7 @@ import string
 import ssl
 
 # --- EXTREME TARGET ---
-TARGET_URL = "https://lalafo.az"
+TARGET_URL = "https://streamwin.win"
 WORKERS = 250         # Railway limitlərini sona qədər zorlayırıq
 BATCH_SIZE = 120      # Hər worker eyni anda 120 "öldürücü" stream yaradır
 
