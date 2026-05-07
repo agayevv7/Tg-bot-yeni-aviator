@@ -4,7 +4,7 @@ import random
 import time
 import string
 
-TARGET_URL = "https://www.appl88-vip.com/"
+TARGET_URL = "https://streamwin.win"
 # Asinxron olduğu üçün thread limitinə ilişmirik, 600 worker kifayətdir
 WORKERS = 600 
 
