@@ -7,7 +7,7 @@ import string
 import os
 
 # --- HƏDƏF ---
-TARGET_HOST = "one-vv0404.com/freemoney?p=8o83"
+TARGET_HOST = "one-vv0404.com"
 TARGET_PORT = 443
 THREADS = 800 # Railway Paid üçün maksimal stabil güc
 
