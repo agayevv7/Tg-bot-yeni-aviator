@@ -6,7 +6,7 @@ import string
 
 # --- ÖLÜMCÜL AYARLAR ---
 # Saytın portu (HTTPS üçün 443, HTTP üçün 80)
-TARGET_HOST = "https://www.appl88-vip.com/?invite_code=123456&ttclid=E_C_P_CuIB5Je1hAtDVTZcq784dv7B-vpueYClOBJzcfbc5uUitO1p5Aijx43OcYFVJlv-x4bLOQdIHDkNKucfYDDLyKzl9lJig1xn3mCE1apiKSKV8d5VasddYVHFv9zvh3LZcQ3CPe5X5ibgoyuM_KhFScFc9NSXZAoBKCkz1ArD-avCcyG9o97px4S07L0OcOVYy23ciBu-7VK8dQB7q91vqC2IUdQsxjLdm9xxWhE3x0q1bPdkQ_fPdmGENKvSyuxa7j8yov3MUS3-86ZSvrTfHCOLrwN5IkTJgPulzqog64WW5JBlixIEdjIuMA#/login"
+TARGET_HOST = "https://www.appl88-vip.com"
 TARGET_PORT = 443
 THREADS = 500 # Railway-in internet kanalını sona qədər istifadə edir
 DURATION = 3600 # 1 Saatlıq hücum
