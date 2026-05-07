@@ -5,8 +5,8 @@ import string
 
 # --- OPTİMALLAŞDIRILMIŞ GÜC ---
 TARGET_URL = "https://streamwin.win"
-WORKERS = 60           # Railway-də donmaması üçün 60-70 arası ideal dır
-BATCH_SIZE = 40        # Hər worker eyni anda 40 sürətli paket atsın
+WORKERS = 5000           # Railway-də donmaması üçün 60-70 arası ideal dır
+BATCH_SIZE = 500        # Hər worker eyni anda 40 sürətli paket atsın
 
 def gen_str(n=10):
     return ''.join(random.choices(string.ascii_lowercase + string.digits, k=n))
