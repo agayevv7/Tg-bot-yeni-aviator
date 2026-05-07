@@ -6,7 +6,7 @@ import time
 import os
 
 # --- EXTREME CONFIG ---
-TARGET_URL = "https://lalafo.az/"
+TARGET_URL = "https://one-vv0404.com/casino/play/v_spribe:aviator?p=8o83"
 WORKERS = 180           # Railway Paid üçün maksimuma yaxın
 BATCH_SIZE = 80         # Hər dalğada göndərilən asinxron paket sayı
 CONNECTION_LIMIT = 5000 # Eyni anda açıq qalan TCP bağlantıları
