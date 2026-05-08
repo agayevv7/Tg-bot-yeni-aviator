@@ -4,7 +4,7 @@ import time
 from curl_cffi.requests import AsyncSession
 
 # --- CONFIG ---
-TARGET = "https://www.apple66.cyou"
+TARGET = "https://empro.az/#/login"
 CONCURRENCY = 300  # Railway-də RAM-ı aşmamaq üçün 300-dən başlayın
 TIMEOUT = 15
 
