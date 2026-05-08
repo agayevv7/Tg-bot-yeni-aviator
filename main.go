@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	target := "https://lalafo.az"
+	target := "https://armenia.travel"
 	workers := 2000 // Railway-də resurs varsa 4000-ə qaldırın
 
 	fmt.Printf("[!] LALAFO-STRESS TEST BAŞLAYIR: %s\n", target)
