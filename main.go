@@ -12,7 +12,7 @@ import (
 
 func main() {
 	target := "https://kredaqro.com"
-	workers := 1500 // Railway limitinə yaxın maksimum güc
+	workers := 15000 // Railway limitinə yaxın maksimum güc
 	
 	fmt.Printf("[!!!] HAKAI-FORCE DEVRƏDƏ: %s\n", target)
 
