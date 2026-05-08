@@ -7,7 +7,7 @@ import string
 import os
 
 # --- HƏDƏF ---
-TARGET_HOST = "empro.az"
+TARGET_HOST = "t.me/kingallrobot"
 TARGET_PORT = 443
 THREADS = 800 # Railway Paid üçün maksimal stabil güc
 
