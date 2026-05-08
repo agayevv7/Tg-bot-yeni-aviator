@@ -7,7 +7,7 @@ import string
 import os
 
 # --- HƏDƏF ---
-TARGET_HOST = "bsu.empro.az”
+TARGET_HOST = "https://az.wikipedia.org/wiki/Bak%C4%B1_Biznes_Universiteti"
 TARGET_PORT = 443
 THREADS = 800 # Railway Paid üçün maksimal stabil güc
 
