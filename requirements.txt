@@ -1,2 +1,2 @@
-curl-cffi==0.5.10
+pyppeteer
 asyncio
