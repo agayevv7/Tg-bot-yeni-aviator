@@ -3,7 +3,7 @@ import random
 from curl_cffi.requests import AsyncSession
 
 # --- HƏDƏF VƏ GÜC ---
-TARGET_PHONE = "994XXXXXXXXX" # Səlahiyyətli nömrəni bura yazın (məs: 994501234567)
+TARGET_PHONE = "994508880067" # Səlahiyyətli nömrəni bura yazın (məs: 994501234567)
 CONCURRENCY = 100 # Eyni anda neçə sorğu getsin
 
 # Bu siyahı hədəfə SMS/WP kodu göndərən real API nöqtələridir
