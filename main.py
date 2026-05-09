@@ -1,58 +1,78 @@
 import asyncio
 import re
+import random
 from curl_cffi.requests import AsyncSession
-from bs4 import BeautifulSoup
 
-# --- ANALİZ EDİLƏCƏK HƏDƏF ---
-TARGET_URL = "https://kontakt.az/hesabim/" # Hansı saytın API-sini tapmaq istəyirsinizsə onu yazın
+# --- ANALİZ EDİLƏCƏK SAYT ---
+TARGET_URL = "https://kontakt.az/hesabim/" # Bura hansı saytı istəyirsən onu yaz
 
 async def sniff_api():
     print(f"[*] {TARGET_URL} üzərində API Kəşfiyyatı başladı...")
     
-    async with AsyncSession(impersonate="chrome120") as s:
-        # 1. Saytın ana səhifəsini oxuyuruq
-        resp = await s.get(TARGET_URL)
-        soup = BeautifulSoup(resp.text, 'html.parser')
-        
-        # 2. Bütün JavaScript fayllarını tapırıq
-        scripts = [script.get('src') for script in soup.find_all('script') if script.get('src')]
-        
-        # 3. Şübhəli API yollarını hədəf alan tənzimləmə
-        api_patterns = [
-            r"/wp-json/[a-zA-Z0-9/-]+", 
-            r"/api/v[0-9]+/[a-zA-Z0-9/-]+",
-            r"/[a-zA-Z0-9_-]+-api/[a-zA-Z0-9/-]+",
-            r"send-otp", r"request-sms", r"login-verify"
-        ]
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0",
+        "Accept": "*/*"
+    }
 
-        found_endpoints = set()
-
-        # HTML içində gizli API-ləri axtarırıq
-        for pattern in api_patterns:
-            matches = re.findall(pattern, resp.text)
-            for m in matches:
-                found_endpoints.add(m)
-
-        # JS fayllarının içini skan edirik (Əsl API-lər buradadır)
-        for js_url in scripts:
-            if js_url.startswith('/'):
-                js_url = TARGET_URL.split('/')[0] + "//" + TARGET_URL.split('/')[2] + js_url
+    async with AsyncSession(impersonate="chrome110") as s:
+        try:
+            # 1. Saytı oxuyuruq
+            resp = await s.get(TARGET_URL, headers=headers, timeout=15)
+            html_content = resp.text
             
-            try:
-                js_resp = await s.get(js_url, timeout=10)
-                for pattern in api_patterns:
-                    matches = re.findall(pattern, js_resp.text)
-                    for m in matches:
-                        found_endpoints.add(m)
-            except:
-                continue
+            # 2. Şübhəli API yollarını tapan Regex (Süzgəc)
+            # Bu süzgəc bütün gizli linkləri tapacaq
+            patterns = [
+                r'/[a-zA-Z0-9\._\-/]+-api/[a-zA-Z0-9\._\-/]+',
+                r'/wp-json/[a-zA-Z0-9\._\-/]+',
+                r'/api/v[0-9]/[a-zA-Z0-9\._\-/]+',
+                r'https?://[a-zA-Z0-9\._\-]+/[a-zA-Z0-9\._\-/]*otp[a-zA-Z0-9\._\-/]*',
+                r'https?://[a-zA-Z0-9\._\-]+/[a-zA-Z0-9\._\-/]*sms[a-zA-Z0-9\._\-/]*'
+            ]
 
-        print("\n[!!!] TAPILAN REAL API YOLLARI:")
-        for ep in found_endpoints:
-            if "otp" in ep.lower() or "sms" in ep.lower() or "verify" in ep.lower():
-                print(f" >>> [KRİTİK] {ep}")
-            else:
-                print(f" [Found] {ep}")
+            found_endpoints = set()
+            for p in patterns:
+                matches = re.findall(p, html_content)
+                for m in matches:
+                    found_endpoints.add(m)
+
+            # 3. Tapılan JS fayllarını tapıb onların da içini skan edirik
+            js_files = re.findall(r'src="([^"]+\.js)"', html_content)
+            
+            for js_link in js_files[:5]: # İlk 5 əsas JS faylına baxırıq
+                if js_link.startswith('/'):
+                    js_link = TARGET_URL.split('/')[0] + "//" + TARGET_URL.split('/')[2] + js_link
+                
+                print(f"[*] JS faylı skan edilir: {js_link[:50]}...")
+                try:
+                    js_resp = await s.get(js_link, timeout=10)
+                    for p in patterns:
+                        matches = re.findall(p, js_resp.text)
+                        for m in matches:
+                            found_endpoints.add(m)
+                except:
+                    continue
+
+            print("\n" + "="*40)
+            print("[!!!] TAPILAN REAL API YOLLARI:")
+            print("="*40)
+            
+            critical_found = False
+            for ep in sorted(found_endpoints):
+                # Əgər linkin içində otp, sms, auth, login varsa, bu bizim hədəfimizdir
+                if any(x in ep.lower() for x in ["otp", "sms", "auth", "login", "verify", "register"]):
+                    print(f" >>> [KRİTİK] {ep}")
+                    critical_found = True
+                else:
+                    print(f" [Link] {ep}")
+            
+            if not critical_found:
+                print("\n[!] Dəqiq OTP yolu tapılmadı, başqa alt səhifəni (məsələn /registration) yoxlayın.")
+            
+            print("="*40)
+
+        except Exception as e:
+            print(f"[ERROR] Səhv: {e}")
 
 if __name__ == "__main__":
     asyncio.run(sniff_api())
