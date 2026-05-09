@@ -1,38 +1,38 @@
-import urllib.request
-import ssl
-import re
+import asyncio
+from curl_cffi.requests import AsyncSession
 
-def get_million_secrets():
-    print("[*] Million.az API Kəşfiyyatı Başladı...")
+async def capture_million_api():
+    print("[*] Million.az API Sniper Rejimi Aktivdir...")
     url = "https://www.million.az/auth/signin"
     
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-
-    headers = {
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15"
-    }
-
-    try:
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, context=ctx) as resp:
-            # 1. Saytın bizə verdiyi COOKIE-ni tuturuq
-            cookies = resp.info().get_all('Set-Cookie')
-            print("\n" + "="*50)
-            print("TAPILAN REAL KUKİLƏR (BUNLARI MƏNƏ DE):")
-            for c in cookies:
-                print(f" >>> {c.split(';')[0]}")
+    # impersonate="safari_ios_16_0" - Bu, Million.az-ı aldadır ki, 
+    # sorğu proqramdan yox, həqiqi iPhone brauzerindən gəlir.
+    async with AsyncSession(impersonate="safari_ios_16_0") as s:
+        try:
+            resp = await s.get(url, timeout=15)
             
-            # 2. HTML içindən XSRF Tokeni tapırıq
-            html = resp.read().decode('utf-8')
-            token = re.search(r'name="csrf-token" content="([^"]+)"', html)
-            if token:
-                print(f"\n >>> X-XSRF-TOKEN: {token.group(1)}")
-            print("="*50)
+            print("\n" + "="*60)
+            print(">>> TAPILAN REАL API MƏLUMATLAR:")
+            print("="*60)
             
-    except Exception as e:
-        print(f"[!] Xəta: {e}")
+            # 1. KUKILARI TUTURUQ
+            cookies = s.cookies.get_dict()
+            if cookies:
+                for name, value in cookies.items():
+                    print(f"[COOKIE] {name}={value}")
+            else:
+                print("[!] Kuki tapılmadı (Cloudflare bloklaya bilər).")
+
+            # 2. STATUSI YOXLAYIRIQ (200 olmalıdır)
+            print(f"\n[STATUS CODE] {resp.status_code}")
+            
+            if resp.status_code == 200:
+                print("\n[MÜVƏFFƏQİYYƏT] API Giriş Qapısı Tapıldı!")
+            
+            print("="*60)
+
+        except Exception as e:
+            print(f"[FATAL] Hədəfə sızmaq mümkün olmadı: {e}")
 
 if __name__ == "__main__":
-    get_million_secrets()
+    asyncio.run(capture_million_api())
